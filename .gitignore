@@ -1,5 +1,5 @@
 # data never goes into git (licensed data in particular)
-catalog/
+catalog
 *.parquet
 *.csv.gz
 # keys
@@ -9,6 +9,8 @@ catalog/
 # python
 __pycache__/
 *.egg-info/
+build/
+dist/
 .venv/
 board.html
 # a lab's own state belongs in its own folder (and repository), never in the code repository

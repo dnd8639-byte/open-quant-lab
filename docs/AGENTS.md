@@ -23,29 +23,49 @@ split of the card's experiment.
 
 ## Connect Claude Desktop (macOS)
 
-Open the config file (Claude Desktop: Settings, Developer, Edit Config; the file is
-`~/Library/Application Support/Claude/claude_desktop_config.json`) and add:
+**1. Give the assistant's copy of the lab a home outside Desktop, Documents and Downloads.** macOS protects those
+folders, and Claude Desktop starts MCP servers in a way macOS does not credit to Claude's own permissions, so a
+server kept there stops at once with "Operation not permitted" (see `~/Library/Logs/Claude/mcp-server-open-quant-lab.log`).
+For example:
+
+```bash
+mkdir -p ~/quant
+python3 -m venv ~/quant/.venv
+~/quant/.venv/bin/pip install /path/to/open-quant-lab    # a copy, not -e: the code must live outside too
+# keep the catalog (OQL_CATALOG) and the lab (OQL_LAB) under ~/quant as well
+```
+
+After changing the lab's code, run the same `pip install` again to update the assistant's copy.
+
+**2. Add the server to the config.** Open the Claude menu in the macOS menu bar, then Settings…, Developer, Edit Config
+(the file is `~/Library/Application Support/Claude/claude_desktop_config.json`). If the file already has settings, put
+`mcpServers` inside the same outer braces: two JSON objects one after the other make Claude skip the whole file.
 
 ```json
 {
   "mcpServers": {
     "open-quant-lab": {
-      "command": "/Users/daviddeconti/Desktop/ahl-node/open-quant-lab/.venv/bin/oql",
+      "command": "/Users/YOU/quant/.venv/bin/oql",
       "args": ["mcp"],
       "env": {
-        "OQL_LAB": "/Users/daviddeconti/Desktop/ahl-node/open-quant-lab",
-        "OQL_CATALOG": "/Users/daviddeconti/Desktop/ahl-node/open-quant-lab/catalog"
+        "OQL_LAB": "/Users/YOU/quant/lab",
+        "OQL_CATALOG": "/Users/YOU/quant/catalog"
       }
     }
   }
 }
 ```
 
-Restart Claude Desktop. Then try: *"Look at my lab. Propose one idea with a clear mechanism that the BTC hourly data
-could test, set up the experiment, explore at most five strategies, and ask me for review."*
+**3. Quit Claude completely and reopen it.** In a new chat, + then Connectors then Manage connectors should list
+`open-quant-lab` with 11 tools. Then try: *"Look at my lab. Propose one idea with a clear mechanism that the data could
+test, set up the experiment, explore at most five strategies, and ask me for review."*
 
 When it asks for review, the card shows "AI asks for review" on the dashboard. Read its pre-registration, then
 decide: `oql card freeze N` and `oql card gate N`, or send it back.
+
+**Give the assistant no other way in.** The limits above hold for an assistant that reaches the lab only through
+`oql mcp`. A chat with the lab's folder attached can also edit files or run `oql` from a shell, and then only its
+own judgment stands between it and a freeze. Keep your real lab in a folder that no chat has attached.
 
 ## Test the server by hand
 ```bash
