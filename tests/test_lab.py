@@ -292,3 +292,65 @@ class TestPaper(Base):
             self.assertAlmostEqual(rep["returns"]["paper_total_pct"], rep["returns"]["backtest_total_pct"], places=6)
         self.assertIn("paper return", paper.status())
         self.assertEqual(board.get(board.load(), c["id"])["stage"], "paper")
+
+
+class TestAgent(Base):
+    def _rpc(self, msgs):
+        import json as _json
+        from oql.mcp_server import serve
+        out = io.StringIO()
+        serve(io.StringIO("\n".join(_json.dumps(m) for m in msgs) + "\n"), out)
+        return [_json.loads(l) for l in out.getvalue().splitlines()]
+
+    def test_protocol_and_permissions(self):
+        import json as _json
+        from oql import catalog, synthetic
+        for i in range(3):
+            catalog.write(f"trend/m{i}/1d", synthetic.trend_market(seed=i), license="own", origin="synthetic")
+        call = lambda i, name, args: {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": name, "arguments": args}}
+        r = self._rpc([
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            call(3, "propose_idea", {"title": "Trend", "hypothesis": "Trends persist.",
+                                     "mechanism": "Regimes persist by construction in these synthetic markets, so momentum is paid."}),
+            call(4, "start_research", {"card_id": "1"}),
+            call(5, "write_experiment", {"card_id": "1", "datasets": ["trend/m0/1d", "trend/m1/1d", "trend/m2/1d"], "n_perm": 39}),
+            call(6, "explore", {"card_id": "1", "dataset": "trend/m0/1d", "rule": "momentum", "params": {"lookback": 20}}),
+            call(7, "freeze", {"card_id": "1"}),
+            call(8, "write_experiment", {"card_id": "1", "datasets": ["trend/m0/1d"], "n_perm": 5}),
+            {"jsonrpc": "2.0", "id": 9, "method": "nonsense"},
+        ])
+        self.assertEqual(r[0]["result"]["serverInfo"]["name"], "open-quant-lab")
+        names = {t["name"] for t in r[1]["result"]["tools"]}
+        self.assertIn("explore", names)
+        self.assertFalse(names & {"freeze", "gate", "holdout", "paper_deploy"})          # never exposed
+        self.assertFalse(r[2]["result"]["isError"])
+        self.assertFalse(r[4]["result"]["isError"], r[4]["result"]["content"][0]["text"])
+        ex = _json.loads(r[5]["result"]["content"][0]["text"])
+        self.assertEqual(ex["explorations_on_this_card"], 1)
+        self.assertTrue(r[6]["result"]["isError"])                                       # no freeze tool
+        self.assertTrue(r[7]["result"]["isError"])                                       # n_perm 5 refused
+        self.assertEqual(r[8]["error"]["code"], -32601)
+
+    def test_explorations_are_reported_at_the_gate(self):
+        from oql import agent_tools as T, board, catalog, synthetic
+        for i in range(3):
+            catalog.write(f"trend/m{i}/1d", synthetic.trend_market(seed=i), license="own", origin="synthetic")
+        T.propose_idea("Trend", "Regimes persist by construction in these synthetic markets, so momentum is paid.", "Trends persist.")
+        T.start_research("1")
+        T.write_experiment("1", ["trend/m0/1d", "trend/m1/1d", "trend/m2/1d"], n_perm=39)
+        for lb in (5, 20, 60):
+            T.explore("1", "trend/m0/1d", "momentum", {"lookback": lb})
+        out = T.explore("1", "trend/m0/1d", "momentum", {"lookback": 120})
+        self.assertLess(out["dev_data"][-10:], "2021-01-01")                            # never past the dev split
+        T.write_preregistration("1", hypothesis="Trends persist.", data="three synthetic markets", strategy_space="library rules",
+                                what_would_change_my_mind="gate p above 0.05")
+        T.request_review("1", "Momentum looks strong on development data.")
+        board.freeze("1")                                                               # the human step
+        with self.assertRaises(T.AgentError):
+            T.write_experiment("1", ["trend/m0/1d"])                                    # frozen: agent locked out
+        rep = board.run_gate("1", procs=2)
+        self.assertEqual(rep["explorations_before_freeze"], 4)
+        with open(os.path.join(board.card_dir(board.get(board.load(), "1")), "gate.md")) as f:
+            self.assertIn("Exploratory evaluations before the freeze | 4", f.read())

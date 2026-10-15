@@ -174,6 +174,10 @@ def freeze(cid: str, lab=None) -> dict:
     exp.rule_table()                                           # raises on an unknown rule
     frozen = locks.freeze([pre, expf])
     frozen["data"] = {ds: catalog.meta(ds).sha256 for ds in exp.datasets}
+    exp_log = os.path.join(d, "explorations.jsonl")
+    if os.path.exists(exp_log):                            # exploration done before the freeze is part of the record
+        with open(exp_log) as f:
+            frozen["explorations"] = sum(1 for l in f if l.strip())
     with open(os.path.join(d, "frozen.json"), "x") as f:
         json.dump(frozen, f, indent=1)
     _move(card, "preregistered", "rules and experiment fingerprinted")
@@ -200,7 +204,7 @@ def run_gate(cid: str, lab=None, procs=None) -> dict:
     lab = lab or lab_dir()
     board = load(lab); card = get(board, cid)
     _require(card, "preregistered")
-    _verify(card, lab)
+    frozen = _verify(card, lab)
     d = card_dir(card, lab)
     if os.path.exists(os.path.join(d, "gate.json")):
         raise locks.LockError("this card's gate already ran; its report is gate.md")
@@ -216,6 +220,7 @@ def run_gate(cid: str, lab=None, procs=None) -> dict:
     finally:
         prog.close()
     rep["family_trials_before"] = ledger.trials_in_family(lab, card["family"])
+    rep["explorations_before_freeze"] = frozen.get("explorations", 0)
     trials = rep.pop("trials")
     with open(os.path.join(d, "gate.json"), "w") as f:
         json.dump(rep, f, indent=1, default=float)
@@ -303,6 +308,7 @@ def gate_markdown(card: dict, r: dict) -> str:
 |---|---|
 | Strategies tried in this search | {r['n_trials']} |
 | Strategies tried earlier in this family | {r['family_trials_before']} |
+| Exploratory evaluations before the freeze | {r.get('explorations_before_freeze', 0)} |
 | Best (finalist) | `{json.dumps(r['finalist'])}` |
 | Development Sharpe | {r['dev_sharpe']:.2f} (data before {r['split'][:10]}) |
 | Best Sharpe on shuffled data | median {r['null_median']:.2f}, 95th percentile {r['null_p95']:.2f} ({r['n_perm']} reruns) |

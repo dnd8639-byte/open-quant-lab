@@ -190,6 +190,8 @@ async function loadBoard() {
       return `<div class="card ${c.id === selected ? "sel" : ""}" data-id="${esc(c.id)}"><div class="id">${esc(c.id.split("-")[0])}</div>
         <div class="t">${esc(c.title)}</div><div class="m">${esc((c.mechanism || "").slice(0, 120))}</div>
         ${run ? '<span class="badge run">gate running…</span>' : ""}
+        ${c.review && c.stage === "research" ? '<span class="badge run">AI asks for review</span>' : ""}
+        ${c.author === "agent" ? '<span class="badge">drafted by AI</span>' : ""}
         ${g ? `<span class="badge ${g.verdict}">gate ${g.verdict} · p ${fmt(g.p, 3)}</span>` : ""}
         ${ho ? `<span class="badge ${ho.verdict}">holdout ${ho.verdict} · SR ${fmt(ho.holdout_sharpe)}</span>` : ""}</div>`;
     }).join("") || '<p class="empty">empty</p>'}</div>`;
@@ -211,6 +213,8 @@ async function showCard(id) {
     <div style="font-size:17px;font-weight:650">${esc(c.title)}</div><p class="note">${esc(c.mechanism)}</p>
     <p>Stage: <b>${esc(c.stage)}</b>${c.stage === "preregistered" && !live ? ' &nbsp; <button class="go" id="rungate">Run the gate</button>' : ""}
       ${c.stage === "gate" ? '<span class="note"> &nbsp; The holdout is one-shot and runs only from the command line: <code>oql card holdout ' + esc(c.id.split("-")[0]) + '</code></span>' : ""}</p>
+    ${c.review ? `<div class="panel" style="margin:8px 0"><h2>AI review request · ${esc(c.review.utc)} · ${c.review.explorations} explorations</h2><p>${esc(c.review.summary)}</p>
+      <p class="note">Only you can freeze this card: <code>oql card freeze ${esc(c.id.split("-")[0])}</code></p></div>` : ""}
     <div class="err" id="card-err"></div>
     ${(start || g) ? `<div class="stats">
       <div class="stat"><div class="k">Best development Sharpe</div><div class="v">${fmt(real)}</div></div>
@@ -224,6 +228,7 @@ async function showCard(id) {
       <div class="panel"><h2>Every strategy the search tried</h2><div id="c-dots"></div></div></div>` : ""}
     ${g ? `<div class="panel"><h2>Gate report</h2><table>
       <tr><td>Finalist</td><td><code>${esc(JSON.stringify(g.finalist))}</code></td></tr>
+      <tr><td>Exploratory evaluations before the freeze</td><td class="num">${g.explorations_before_freeze ?? 0}</td></tr>
       <tr><td>Deflated Sharpe</td><td class="num">${fmt(g.deflated_sharpe, 3)}</td></tr>
       <tr><td>Cost/delay Monte Carlo (median, 5th pct, share &gt; 0)</td><td class="num">${fmt(g.cost_mc.median)} · ${fmt(g.cost_mc.p5)} · ${fmt(100 * g.cost_mc.share_positive, 0)}%</td></tr>
       <tr><td>Long side / short side Sharpe</td><td class="num">${fmt(g.side_beta.sharpe_long)} / ${fmt(g.side_beta.sharpe_short)}</td></tr>

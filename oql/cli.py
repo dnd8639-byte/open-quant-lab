@@ -34,6 +34,9 @@ COLLECTOR (run daily on the Pi)
   oql collect run [--job NAME] [--force]
   oql collect status
 
+AI ASSISTANT (Model Context Protocol server; see docs/AGENTS.md)
+  oql mcp                    run the lab's tools for an AI assistant over stdio
+
 DASHBOARD
   oql serve [--port 8765]    live board, gate runs as they happen, the permutation lab, data, ledger
 """
@@ -146,6 +149,7 @@ def main(argv=None):
     k = sub.add_parser("collect").add_subparsers(dest="cmd", required=True)
     k.add_parser("init"); k.add_parser("status")
     x = k.add_parser("run"); x.add_argument("--job", default=None); x.add_argument("--force", action="store_true")
+    sub.add_parser("mcp")
     s = sub.add_parser("serve"); s.add_argument("--port", type=int, default=8765); s.add_argument("--no-browser", action="store_true")
 
     a = p.parse_args(argv)
@@ -185,6 +189,9 @@ def main(argv=None):
                 collect.run(only=a.job, force=a.force)
             else:
                 print(collect.status())
+        elif a.area == "mcp":
+            from .mcp_server import serve as mcp_serve
+            mcp_serve()
         elif a.area == "serve":
             from .server import serve
             serve(a.port, not a.no_browser)

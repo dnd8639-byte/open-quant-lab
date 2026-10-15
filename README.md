@@ -84,6 +84,7 @@ Holdouts are deliberately not runnable from the page: they are one-shot, so they
 | `oql/server.py`, `oql/web/` | The `oql serve` dashboard (standard library only) |
 | `oql/collect.py` | Scheduled, incremental, checksum-verified downloads |
 | `oql/paper.py` | Paper trading: journal, revisions, reconciliation |
+| `oql/agent_tools.py`, `oql/mcp_server.py` | What an AI assistant may do, served over MCP |
 | `oql/ledger.py`, `oql/locks.py` | Every test counted; freeze fingerprints and one-shot locks |
 
 ## Roadmap
@@ -93,7 +94,9 @@ Holdouts are deliberately not runnable from the page: they are one-shot, so they
       reconciliation; a NautilusTrader adapter remains optional
 - [x] Phase 3: validation gate
 - [x] Phase 4: pipeline board (command line + HTML)
-- [ ] Phase 5: optional LLM agents through an MCP server that can propose cards and write experiment code, and cannot freeze, run a holdout or move a card past a failed gate
+- [x] Phase 5: an MCP server (`oql mcp`) so an AI assistant can propose cards, write pre-registrations and
+      experiments, and explore development data; it cannot freeze, run the gate or holdout, or deploy, and every
+      exploration it makes is counted in the gate report. See [docs/AGENTS.md](docs/AGENTS.md)
 
 Building on it: [docs/DEVELOPING.md](docs/DEVELOPING.md). Running it on a Pi: [deploy/README.md](deploy/README.md).
 See [NOTICE.md](NOTICE.md) for credits.
