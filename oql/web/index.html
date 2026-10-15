@@ -213,7 +213,7 @@ async function showCard(id) {
     <div style="font-size:17px;font-weight:650">${esc(c.title)}</div><p class="note">${esc(c.mechanism)}</p>
     <p>Stage: <b>${esc(c.stage)}</b>${c.stage === "preregistered" && !live ? ' &nbsp; <button class="go" id="rungate">Run the gate</button>' : ""}
       ${c.stage === "gate" ? '<span class="note"> &nbsp; The holdout is one-shot and runs only from the command line: <code>oql card holdout ' + esc(c.id.split("-")[0]) + '</code></span>' : ""}</p>
-    ${c.review ? `<div class="panel" style="margin:8px 0"><h2>AI review request · ${esc(c.review.utc)} · ${c.review.explorations} explorations</h2><p>${esc(c.review.summary)}</p>
+    ${c.review ? `<div class="panel" style="margin:8px 0"><h2>AI review request · ${esc(c.review.utc)} · ${c.review.explorations} explorations</h2>${c.review.edited_after ? `<p class="err">Out of date: ${esc(c.review.edited_after)} after this summary was written. Read the files below, not the summary.</p>` : ""}<p>${esc(c.review.summary)}</p>
       <p class="note">Only you can freeze this card: <code>oql card freeze ${esc(c.id.split("-")[0])}</code></p></div>` : ""}
     <div class="err" id="card-err"></div>
     ${(start || g) ? `<div class="stats">

@@ -3,6 +3,15 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.3.4
+Found in the first dry run with an AI assistant connected over MCP:
+- `write_experiment` and `explore` now say that every strategy trades all of an experiment's datasets together as one
+  equal-risk portfolio. The assistant had counted 4 lookbacks on 2 coins as 8 strategies.
+- Editing a card after asking for review marks the review summary as out of date, on the card and on the dashboard,
+  until the assistant sends a fresh one.
+- The gate report explains a result worse than every shuffled run: the signal pointed the wrong way more often than
+  chance, and testing the opposite idea would be a new card and a new counted test.
+
 ## 0.3.3
 - `oql data check` compares prices with a relative tolerance. Prices stored as decimals round slightly, and at large
   levels (Nikkei futures in the tens of thousands) that rounding was being reported as broken bars.

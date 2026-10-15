@@ -321,9 +321,18 @@ def gate_markdown(card: dict, r: dict) -> str:
 | Long side / short side | {sb['sharpe_long']:.2f} / {sb['sharpe_short']:.2f} |
 | Beta to the market / correlation | {sb['beta_to_market']:+.2f} / {sb['corr_to_market']:+.2f} |
 | Lab version at the freeze / at the gate | {r.get('oql_version_at_freeze', 'not recorded')} / {r.get('oql_version', '?')} |
-{_version_note(r)}
+{_version_note(r)}{_below_all_note(r)}
 The holdout (dates from {r['split'][:10]}) has not been touched.
 """
+
+
+def _below_all_note(r: dict) -> str:
+    null = r.get("null") or []
+    if null and r["dev_sharpe"] < min(null):
+        return (f"\n**Note:** the real result ({r['dev_sharpe']:.2f}) is worse than every one of the {len(null)} shuffled runs. In this "
+                "data the rule's signal pointed the wrong way more often than chance would. If the opposite idea is worth testing, "
+                "that is a new card and a new counted test, not a conclusion from this one.\n")
+    return ""
 
 
 def _version_note(r: dict) -> str:

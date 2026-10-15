@@ -432,6 +432,32 @@ class TestAgent(Base):
         self.assertIn("Exploratory evaluations before the freeze | 4", text)
         self.assertIn(f"Lab version at the freeze / at the gate | {__version__} / {__version__}", text)
 
+    def test_assistant_is_told_how_the_search_counts_and_when_its_summary_is_stale(self):
+        """Found in the dry run: an assistant counted 4 lookbacks x 2 coins as 8 strategies, and its review summary kept
+        saying 8 after it corrected the pre-registration."""
+        from oql import agent_tools as T, board, catalog, synthetic
+        for i in range(2):
+            catalog.write(f"noise/m{i}/1d", synthetic.noise_market(seed=i), license="own", origin="synthetic")
+        T.propose_idea("Reversal", "Liquidity providers are paid to absorb one-sided flow, so short moves partly revert.", "Moves revert.")
+        T.start_research("1")
+        out = T.write_experiment("1", ["noise/m0/1d", "noise/m1/1d"], rules=["reversal"], n_perm=39)
+        self.assertEqual(out["strategies_in_search_space"], 4)
+        self.assertIn("trades all 2 datasets together", out["how_the_search_works"])
+        self.assertIn("all 2 datasets", T.explore("1", "noise/m0/1d", "reversal", {"lookback": 2})["scope"])
+        T.write_preregistration("1", hypothesis="h", data="d", strategy_space="s", what_would_change_my_mind="w")
+        T.request_review("1", "Four reversal lookbacks on two markets.")
+        self.assertNotIn("edited_after", board.get(board.load(), "1")["review"])
+        again = T.write_preregistration("1", hypothesis="h2", data="d", strategy_space="s", what_would_change_my_mind="w")
+        self.assertIn("out of date", again["review"])
+        self.assertIn("PREREGISTRATION.md changed", board.get(board.load(), "1")["review"]["edited_after"])
+        T.request_review("1", "Corrected summary.")                                     # a fresh summary clears it
+        self.assertNotIn("edited_after", board.get(board.load(), "1")["review"])
+
+    def test_report_explains_a_result_worse_than_every_shuffle(self):
+        from oql.board import _below_all_note
+        self.assertIn("worse than every one of the 3 shuffled runs", _below_all_note({"dev_sharpe": -2.0, "null": [-1.0, -0.5, 0.2]}))
+        self.assertEqual(_below_all_note({"dev_sharpe": -0.7, "null": [-1.0, -0.5, 0.2]}), "")
+
     def test_exploration_uses_the_cards_costs(self):
         """The assistant must see what the gate will see: the experiment's costs, not a cheaper default."""
         from oql import agent_tools as T, catalog, synthetic

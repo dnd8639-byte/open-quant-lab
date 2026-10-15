@@ -176,7 +176,21 @@ def write_preregistration(card_id: str, hypothesis: str = "TODO", mechanism: str
                          space=strategy_space.strip(), falsify=what_would_change_my_mind.strip())
     with open(os.path.join(board.card_dir(c), "PREREGISTRATION.md"), "w") as f:
         f.write(text)
-    return {"written": "PREREGISTRATION.md", "sections_still_TODO": text.count("TODO")}
+    stale = _mark_review_outdated(c["id"], "PREREGISTRATION.md")
+    return {"written": "PREREGISTRATION.md", "sections_still_TODO": text.count("TODO"),
+            **({"review": stale} if stale else {})}
+
+
+def _mark_review_outdated(card_id: str, what: str) -> str | None:
+    """A review summary describes the card as it was. Editing the card afterwards marks the summary as out of date,
+    so the person reviewing knows to read the files, not the summary, or to ask for a fresh one."""
+    bd = board.load()
+    c = board.get(bd, card_id)
+    if not c.get("review"):
+        return None
+    c["review"]["edited_after"] = f"{what} changed {time.strftime('%Y-%m-%d %H:%M', time.gmtime())} UTC"
+    board.save(bd)
+    return "your earlier review summary is now out of date; call request_review again with a corrected summary"
 
 
 EXPERIMENT = '''"""Experiment for card {id}: {title}. Rendered from structured fields{agent}. Frozen with PREREGISTRATION.md."""
@@ -222,7 +236,13 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
         f.write(text)
     exp = load_exp(path)                                   # proves it loads
     exp.rule_table()
-    return {"written": "experiment.py", "datasets": exp.datasets, "strategies_in_search_space": _space_size(exp)}
+    n, k = _space_size(exp), len(exp.datasets)
+    stale = _mark_review_outdated(c["id"], "experiment.py")
+    return {"written": "experiment.py", "datasets": exp.datasets, "strategies_in_search_space": n,
+            "how_the_search_works": (f"Each of the {n} strategies trades all {k} datasets together as one equal-risk portfolio, "
+                                     f"and the gate picks the best portfolio. The count is {n}, not {n} x {k}.") if k > 1 else
+                                    f"Each of the {n} strategies trades {exp.datasets[0]}; the gate picks the best one.",
+            **({"review": stale} if stale else {})}
 
 
 def _space_size(exp: Experiment) -> int:
@@ -278,7 +298,18 @@ def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "bo
             "dev_data": f"{str(dev.index[0])[:10]} to {str(dev.index[-1])[:10]}",
             "explorations_on_this_card": n,
             "reminder": f"This is exploration #{n} on this card. Every one is reported next to the gate result; "
-                        "the more strategies you look at before freezing, the higher the real bar."}
+                        "the more strategies you look at before freezing, the higher the real bar.",
+            **({"scope": f"This scored {dataset} alone. The gate scores each strategy on all {len(others)} datasets of the "
+                         "experiment together, as one portfolio, so a single-market result is only indirect evidence."}
+               if len(others := _card_datasets(c)) > 1 else {})}
+
+
+def _card_datasets(c) -> list:
+    path = os.path.join(board.card_dir(c), "experiment.py")
+    try:
+        return list(load_exp(path).datasets) if os.path.exists(path) else []
+    except Exception:
+        return []
 
 
 def permutation_check(card_id: str, dataset: str, rule: str, params: dict, side: str = "both", n: int = 99,
@@ -346,13 +377,16 @@ TOOLS = {
     "write_preregistration": (write_preregistration, "Fill the pre-registration sections (only before the freeze). The pass rule is fixed and cannot be edited.",
                               S({"card_id": STR, "hypothesis": STR, "mechanism": STR, "data": STR, "strategy_space": STR,
                                  "what_would_change_my_mind": STR}, ["card_id", "hypothesis", "data", "strategy_space", "what_would_change_my_mind"])),
-    "write_experiment": (write_experiment, "Declare the experiment from structured fields: datasets, library rules, optional parameter grids, costs (bps per side), alpha, n_perm.",
+    "write_experiment": (write_experiment, "Declare the experiment from structured fields: datasets, library rules, optional parameter grids, costs (bps per side), alpha, n_perm. "
+                         "Every strategy trades ALL the listed datasets together as one equal-risk portfolio, so the search size is the number of "
+                         "rule and parameter combinations, not that number times the datasets.",
                          S({"card_id": STR, "datasets": {"type": "array", "items": STR},
                             "rules": {"type": "array", "items": {"type": "string", "enum": list(RULES)}},
                             "grid": {"type": "object", "description": "rule -> {param -> [integers]}"},
                             "cost_bps": {"type": "object", "additionalProperties": NUM}, "alpha": NUM, "n_perm": INT},
                            ["card_id", "datasets"])),
-    "explore": (explore, "Score one strategy on DEVELOPMENT data only (never the holdout). Logged and counted against the card.",
+    "explore": (explore, "Score one strategy on ONE dataset's DEVELOPMENT data only (never the holdout), at the card's declared costs. Logged and "
+                "counted against the card. The gate scores strategies on all the experiment's datasets together, so this is indirect evidence when there are several.",
                 S({"card_id": STR, "dataset": STR, "rule": {"type": "string", "enum": list(RULES)}, "params": PARAMS, "side": SIDE},
                   ["card_id", "dataset", "rule", "params"])),
     "permutation_check": (permutation_check, "Exploratory permutation test of one strategy on development data (19-199 shuffles). Logged; does not replace the gate.",
