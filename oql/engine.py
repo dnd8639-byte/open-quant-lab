@@ -72,7 +72,9 @@ def market_returns(a: dict, signal: np.ndarray, cost_mult: float = 1.0, delay: f
     prev = np.concatenate([[0.0], held[:-1]])           # in force during bar t-1
     pnl = prev * (a["gap"] + delay * a["intra"]) + held * (1 - delay) * a["intra"] - np.abs(held - prev) * a["cost"] * cost_mult
     live = np.concatenate([[False], a["win"][:-1]])
-    trades = int((np.diff(pos[a["win"]], prepend=0.0) != 0).sum())
+    # a trade = a change of direction (enter, exit or flip). Resizing to hold volatility steady is paid for in
+    # costs above but is not a new trade; counting it made every bar a "trade" and the minimum-trades rule a no-op.
+    trades = int((np.diff(np.sign(pos[a["win"]]), prepend=0.0) != 0).sum())
     return np.where(live, pnl, np.nan), trades
 
 

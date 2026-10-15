@@ -23,11 +23,13 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from oql.engine import prepare            # noqa: E402
+from oql.experiment import Experiment     # noqa: E402
 from oql.search import Scorer, sharpe     # noqa: E402
 from oql.sources import _ssl_context      # noqa: E402
 from oql.strategies import RULES, valid   # noqa: E402
 
 URL = "https://dnd8639-byte.github.io/open-quant-lab/"
+MTPY = Experiment(datasets=[]).min_trades_per_year
 DRIVER = r"""
 const OQL = require(process.argv[1]), M = JSON.parse(require("fs").readFileSync(process.argv[2]));
 const genomes = JSON.parse(process.argv[3]), out = {};  // node -e: arguments start at argv[1]
@@ -75,8 +77,8 @@ def main(src: str = URL) -> int:
         split = int(len(df) * 0.7)
         for cost in (1, 10):
             j = js[f"{k}@{cost}"]
-            dev = Scorer(prepare({k: df.iloc[:split]}, {"default": float(cost)}, warmup=250), RULES, 4.0)
-            hold = Scorer(prepare({k: df}, {"default": float(cost)}, warmup=250, score_from=df.index[split]), RULES, 4.0)
+            dev = Scorer(prepare({k: df.iloc[:split]}, {"default": float(cost)}, warmup=250), RULES, MTPY)
+            hold = Scorer(prepare({k: df}, {"default": float(cost)}, warmup=250, score_from=df.index[split]), RULES, MTPY)
             for g, a, b in zip(genomes, j["dev"], j["holdout"]):
                 py_dev = dev.score(g, delay=1 / 23)
                 py_hold = sharpe(hold.returns(g, delay=1 / 23)[0].to_numpy(), hold.prep.ppy)

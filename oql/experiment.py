@@ -34,7 +34,7 @@ class Experiment:
     children: int = 18
     fresh: int = 6
     elite: int = 6
-    min_trades_per_year: float = 4.0                  # per market
+    min_trades_per_year: float = 1.0                  # direction changes per year, per market (fewer = never selected)
     warmup: int = 250                                 # bars ignored at the start (longest lookback)
     start: str | None = None
     end: str | None = None

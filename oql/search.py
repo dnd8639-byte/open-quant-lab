@@ -48,7 +48,7 @@ def key(g: dict) -> str:
 
 
 class Scorer:
-    def __init__(self, prep: Prepared, rules: dict, min_trades_per_year: float = 4.0):
+    def __init__(self, prep: Prepared, rules: dict, min_trades_per_year: float = 1.0):
         self.prep, self.rules, self.mtpy = prep, rules, min_trades_per_year
         self._sig = {}
 
@@ -68,7 +68,7 @@ class Scorer:
         port, _, trades = self.returns(g, **kw)
         years = len(port) / self.prep.ppy
         if years <= 0 or trades / years < self.mtpy * len(self.prep.names):
-            return -9.0                                    # too few trades to judge: never selected
+            return -9.0                                    # almost never changes direction: never selected
         return sharpe(port.to_numpy(), self.prep.ppy)
 
 

@@ -43,9 +43,12 @@ def _log_exploration(card, entry):
     d = board.card_dir(card)
     with open(os.path.join(d, "explorations.jsonl"), "a") as f:
         f.write(json.dumps({"utc": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), **entry}) + "\n")
+    check = entry.get("kind") == "permutation_check"
     ledger.append(board.lab_dir(), card=card["id"], family=card["family"], kind="explore", verdict="-",
-                  sharpe=round(entry.get("sharpe", float("nan")), 3), n_trials=1, finalist=entry.get("genome", ""),
-                  data=entry.get("dataset", ""), note=f"by {entry.get('actor', 'agent')}")
+                  p=round(entry["p"], 4) if check else "", sharpe=round(entry.get("sharpe", float("nan")), 3), n_trials=1,
+                  finalist=entry.get("genome", ""), data=entry.get("dataset", ""),
+                  note=f"by {entry.get('actor', 'agent')}" + (" · single-strategy permutation check" if check else "")
+                       + f" · {entry.get('cost_bps', 1.0):g} bp")
 
 
 def explorations(card) -> list[dict]:
@@ -232,9 +235,22 @@ def _space_size(exp: Experiment) -> int:
 
 
 # ---------------------------------------------------------------------------------------------- explore (development data only)
-def _dev_scorer(book, ds, warmup):
+def _card_costs(c, ds) -> tuple[float, float]:
+    """The cost (bps) and fill delay the card's experiment declares for this dataset, so exploration sees what the
+    gate will see. Before an experiment is written: 1 bp and the default delay."""
+    path = os.path.join(board.card_dir(c), "experiment.py")
+    if os.path.exists(path):
+        try:
+            exp = load_exp(path)
+            return float(exp.cost_bps.get(ds, exp.cost_bps.get("default", 1.0))), float(exp.delay)
+        except Exception:                                   # an unfinished template: fall back to the defaults
+            pass
+    return 1.0, 1 / 23
+
+
+def _dev_scorer(book, ds, warmup, cost_bps=1.0):
     exp = Experiment(datasets=[ds])
-    return Scorer(prepare(book, {"default": 1.0}, warmup=warmup), exp.rule_table(), 0.0), exp
+    return Scorer(prepare(book, {"default": cost_bps}, warmup=warmup), exp.rule_table(), 0.0), exp
 
 
 def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "both", actor: str = "agent") -> dict:
@@ -248,13 +264,18 @@ def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "bo
     dev = catalog.read(dataset)
     dev = dev[dev.index < cut]
     g = {"rule": rule, "params": {k: int(v) for k, v in params.items()}, "side": side}
-    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)))
-    port, _, trades = sc.returns(g, delay=exp.delay)
+    cost, delay = _card_costs(c, dataset)
+    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)), cost)
+    port, _, trades = sc.returns(g, delay=delay)
     s = sharpe(port.to_numpy(), sc.prep.ppy)
-    entry = dict(actor=actor, kind="explore", dataset=dataset, genome=json.dumps(g, sort_keys=True), sharpe=s, trades=trades)
+    entry = dict(actor=actor, kind="explore", dataset=dataset, genome=json.dumps(g, sort_keys=True), sharpe=s, trades=trades,
+                 cost_bps=cost)
     _log_exploration(c, entry)
     n = len(explorations(c))
-    return {"sharpe_dev": s, "trades": trades, "dev_data": f"{str(dev.index[0])[:10]} to {str(dev.index[-1])[:10]}",
+    years = len(port) / sc.prep.ppy
+    return {"sharpe_dev": s, "cost_bps": cost, "direction_changes": trades,
+            "direction_changes_per_year": round(trades / years, 1) if years > 0 else None,
+            "dev_data": f"{str(dev.index[0])[:10]} to {str(dev.index[-1])[:10]}",
             "explorations_on_this_card": n,
             "reminder": f"This is exploration #{n} on this card. Every one is reported next to the gate result; "
                         "the more strategies you look at before freezing, the higher the real bar."}
@@ -275,16 +296,17 @@ def permutation_check(card_id: str, dataset: str, rule: str, params: dict, side:
     dev = dev[dev.index < cut]
     g = {"rule": rule, "params": {k: int(v) for k, v in params.items()}, "side": side}
     warm = min(250, max(20, len(dev) // 10))
+    cost, delay = _card_costs(c, dataset)
 
     def one(book):
-        sc, exp = _dev_scorer(book, dataset, warm)
-        return sharpe(sc.returns(g, delay=exp.delay)[0].to_numpy(), sc.prep.ppy)
+        sc, exp = _dev_scorer(book, dataset, warm, cost)
+        return sharpe(sc.returns(g, delay=delay)[0].to_numpy(), sc.prep.ppy)
     real = one({dataset: dev})
     null = np.array([one(permute_book({dataset: dev}, 7000 + k)) for k in range(n)])
     p = float((1 + (null >= real).sum()) / (n + 1))
     _log_exploration(c, dict(actor=actor, kind="permutation_check", dataset=dataset, genome=json.dumps(g, sort_keys=True),
-                             sharpe=real, p=p, n=n))
-    return {"sharpe_dev": real, "p_single_strategy": p, "permutations": n, "null_median": float(np.median(null)),
+                             sharpe=real, p=p, n=n, cost_bps=cost))
+    return {"sharpe_dev": real, "cost_bps": cost, "p_single_strategy": p, "permutations": n, "null_median": float(np.median(null)),
             "explorations_on_this_card": len(explorations(c)),
             "warning": "p for ONE strategy you chose after looking is optimistic; only the gate's whole-search test counts."}
 

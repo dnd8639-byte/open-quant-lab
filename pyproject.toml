@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-quant-lab"
-version = "0.3.1"
+version = "0.3.2"
 description = "A fully open research pipeline for trading strategies, built around tests that cannot be gamed"
 readme = "README.md"
 license = {text = "MIT"}

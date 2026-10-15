@@ -219,6 +219,12 @@ def check(ds_id: str) -> dict:
         rep["largest_gap"] = str(big.max()) if len(big) else "-"
         if len(big):
             warnings.append(f"{len(big)} gaps longer than expected (largest {big.max()})")
+        if step <= pd.Timedelta("1D"):                         # bars must sit on the grid, or markets will not line up
+            off = df.index[(df.index - df.index.floor(step)) != pd.Timedelta(0)]
+            rep["off_grid"] = int(len(off))
+            if len(off):
+                warnings.append(f"{len(off)} bars not on the {freq} grid (first at {off[0]}): they will not line up with "
+                                f"other markets in a joint test or with live bars in paper trading")
     with np.errstate(invalid="ignore", divide="ignore"):       # bad prices are already reported above
         r = np.log(df["close"].where(df["close"] > 0)).diff().dropna()
     if len(r) > 50:

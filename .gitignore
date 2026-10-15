@@ -11,3 +11,7 @@ __pycache__/
 *.egg-info/
 .venv/
 board.html
+# a lab's own state belongs in its own folder (and repository), never in the code repository
+/cards/
+/board.json
+/LEDGER.csv

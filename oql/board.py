@@ -174,6 +174,8 @@ def freeze(cid: str, lab=None) -> dict:
     exp.rule_table()                                           # raises on an unknown rule
     frozen = locks.freeze([pre, expf])
     frozen["data"] = {ds: catalog.meta(ds).sha256 for ds in exp.datasets}
+    from . import __version__
+    frozen["oql_version"] = __version__                       # the lab's own code can change what a frozen card means
     exp_log = os.path.join(d, "explorations.jsonl")
     if os.path.exists(exp_log):                            # exploration done before the freeze is part of the record
         with open(exp_log) as f:
@@ -221,6 +223,8 @@ def run_gate(cid: str, lab=None, procs=None) -> dict:
         prog.close()
     rep["family_trials_before"] = ledger.trials_in_family(lab, card["family"])
     rep["explorations_before_freeze"] = frozen.get("explorations", 0)
+    from . import __version__
+    rep["oql_version"], rep["oql_version_at_freeze"] = __version__, frozen.get("oql_version", "not recorded")
     trials = rep.pop("trials")
     with open(os.path.join(d, "gate.json"), "w") as f:
         json.dump(rep, f, indent=1, default=float)
@@ -316,9 +320,17 @@ def gate_markdown(card: dict, r: dict) -> str:
 | Cost/delay Monte Carlo | median {mc['median']:.2f}, 5th percentile {mc['p5']:.2f}, positive {mc['share_positive']:.0%} |
 | Long side / short side | {sb['sharpe_long']:.2f} / {sb['sharpe_short']:.2f} |
 | Beta to the market / correlation | {sb['beta_to_market']:+.2f} / {sb['corr_to_market']:+.2f} |
-
+| Lab version at the freeze / at the gate | {r.get('oql_version_at_freeze', 'not recorded')} / {r.get('oql_version', '?')} |
+{_version_note(r)}
 The holdout (dates from {r['split'][:10]}) has not been touched.
 """
+
+
+def _version_note(r: dict) -> str:
+    a, b = r.get("oql_version_at_freeze"), r.get("oql_version")
+    if a and b and a != b:
+        return f"\n**Note:** the lab's code changed between the freeze ({a}) and the gate ({b}). Check the changelog for anything that alters this test.\n"
+    return ""
 
 
 def render_text(board: dict) -> str:

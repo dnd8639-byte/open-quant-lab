@@ -50,6 +50,18 @@ class TestCatalog(Base):
         self.assertIn("non-positive", issues)
         self.assertIn("outside low-high", issues)
 
+    def test_check_finds_bars_off_the_grid(self):
+        """Seen in real Binance data: after the February 2018 outage, 43 hourly bars opened 28 minutes past the hour."""
+        from oql import catalog, synthetic
+        df = synthetic.noise_market(n=300)
+        df.index = pd.date_range("2018-01-01", periods=300, freq="1h", tz="UTC", name="ts")
+        df.index = df.index.where(~((df.index >= df.index[100]) & (df.index < df.index[143])), df.index + pd.Timedelta("28min"))
+        catalog.write("synth/offgrid/1h", df, license="own", origin="test")
+        r = catalog.check("synth/offgrid/1h")
+        self.assertEqual(r["off_grid"], 43)
+        self.assertIn("not on the 1h grid", " ".join(r["warnings"]))
+        self.assertEqual(catalog.check("synth/offgrid/1h")["issues"], [])            # a warning to look at, not an error
+
     def test_licence_required(self):
         from oql import catalog, synthetic
         with self.assertRaises(ValueError):
@@ -138,6 +150,16 @@ class TestEngine(unittest.TestCase):
         pnl, trades = market_returns(a, np.array([0, 1, 1, -1, -1, 0, 0, 0, 0, 0.0]), delay=0.0)
         self.assertAlmostEqual(np.nansum(pnl), -(1 + 2 + 1) * 1e-4)
         self.assertEqual(trades, 3)
+
+    def test_resizing_is_not_a_trade(self):
+        """Positions are resized every bar to hold volatility steady. That is paid for in costs, but it is not a new
+        trade, so the minimum-trades rule still measures how often a strategy changes direction."""
+        from oql.engine import market_returns
+        n = 50
+        a = self._arrays(np.zeros(n), np.zeros(n)); a["cost"] = 1e-4; a["size"] = 1 + 0.1 * np.sin(np.arange(n))
+        pnl, trades = market_returns(a, np.ones(n), delay=0.0)
+        self.assertEqual(trades, 1)
+        self.assertLess(np.nansum(pnl), -1.5e-4)          # entry plus every resize is charged
 
 
 class TestPermutation(unittest.TestCase):
@@ -384,5 +406,21 @@ class TestAgent(Base):
             T.write_experiment("1", ["trend/m0/1d"])                                    # frozen: agent locked out
         rep = board.run_gate("1", procs=2)
         self.assertEqual(rep["explorations_before_freeze"], 4)
+        from oql import __version__
         with open(os.path.join(board.card_dir(board.get(board.load(), "1")), "gate.md")) as f:
-            self.assertIn("Exploratory evaluations before the freeze | 4", f.read())
+            text = f.read()
+        self.assertIn("Exploratory evaluations before the freeze | 4", text)
+        self.assertIn(f"Lab version at the freeze / at the gate | {__version__} / {__version__}", text)
+
+    def test_exploration_uses_the_cards_costs(self):
+        """The assistant must see what the gate will see: the experiment's costs, not a cheaper default."""
+        from oql import agent_tools as T, catalog, synthetic
+        catalog.write("noise/m0/1d", synthetic.noise_market(seed=3), license="own", origin="synthetic")
+        T.propose_idea("Reversal", "Liquidity providers are paid to absorb one-sided flow, so short moves partly revert.", "Moves revert.")
+        T.start_research("1")
+        cheap = T.explore("1", "noise/m0/1d", "reversal", {"lookback": 1})              # no experiment yet: 1 bp
+        T.write_experiment("1", ["noise/m0/1d"], rules=["reversal"], cost_bps={"default": 25}, n_perm=39)
+        dear = T.explore("1", "noise/m0/1d", "reversal", {"lookback": 1})
+        self.assertEqual((cheap["cost_bps"], dear["cost_bps"]), (1.0, 25.0))
+        self.assertLess(dear["sharpe_dev"], cheap["sharpe_dev"] - 1.0)                # daily reversal pays heavily for costs
+        self.assertGreater(dear["direction_changes_per_year"], 50)

@@ -200,7 +200,10 @@ def main(argv=None):
             rows = ledger.rows(board.lab_dir())
             for r in rows:
                 print(f"{r['utc']}  {r['kind']:8s} {r['verdict']:5s} p={r['p']:7s} SR={r['sharpe']:7s} trials={r['n_trials']:4s} {r['card']}")
-            print(f"{len(rows)} tests, {sum(r['verdict'] == 'PASS' for r in rows)} passed")
+            tests = [r for r in rows if r["kind"] in ("gate", "holdout")]
+            n, x = len(tests), len(rows) - len(tests)
+            print(f"{n} test{'' if n == 1 else 's'} ({sum(r['verdict'] == 'PASS' for r in tests)} passed) · "
+                  f"{x} exploration{'' if x == 1 else 's'} before freezes")
     except (BoardError, LockError, KeyError, ValueError) as e:
         sys.exit(f"refused: {e}")
     except OSError as e:                                   # network problems: one clear line, not a traceback
