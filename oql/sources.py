@@ -69,11 +69,12 @@ KLINE_COLS = ["open_time", "open", "high", "low", "close", "volume", "close_time
 def parse_binance_zip(blob: bytes) -> pd.DataFrame:
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         raw = z.read(z.namelist()[0]).decode()
-    d = pd.read_csv(io.StringIO(raw), header=None)
-    if not str(d.iloc[0, 0]).strip().lstrip("-").isdigit():         # some files carry a header row
-        d = d.iloc[1:]
+    first = raw.lstrip().split("\n", 1)[0].split(",", 1)[0].strip()
+    has_header = not first.lstrip("-").isdigit()                    # futures files carry a header row; spot files do not
+    d = pd.read_csv(io.StringIO(raw), header=0 if has_header else None)
     d = d.iloc[:, :12]
     d.columns = KLINE_COLS
+    d = d.apply(pd.to_numeric, errors="coerce").dropna(subset=["open_time"])
     d = d.astype({"open_time": "int64"})
     return catalog.normalize_bars(d[["open_time", "open", "high", "low", "close", "volume", "trades",
                                      "taker_buy_base"]].rename(columns={"open_time": "ts"}))

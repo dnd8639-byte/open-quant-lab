@@ -109,6 +109,11 @@ def normalize_bars(df: pd.DataFrame) -> pd.DataFrame:
     d = d[~d.index.duplicated(keep="last")]
     for c in BAR_COLUMNS:
         d[c] = pd.to_numeric(d[c], errors="coerce").astype(float)
+    for c in extra:                                      # numbers stored as text (e.g. from a header row) break Parquet
+        if d[c].dtype == object:
+            v = pd.to_numeric(d[c], errors="coerce")
+            if v.notna().sum() == d[c].notna().sum():
+                d[c] = v
     return d.dropna(subset=["close"])
 
 

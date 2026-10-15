@@ -68,6 +68,38 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(str(d.index[0]), "2025-01-01 00:00:00+00:00")
         self.assertEqual(d["close"].iloc[1], 94150)
 
+    def test_binance_futures_header_row(self):
+        """Futures files start with a header row; mixed with headerless months they must still save as numbers."""
+        import pandas as pd
+        from oql.sources import parse_binance_zip
+
+        def z(text):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as f:
+                f.writestr("x.csv", text)
+            return buf.getvalue()
+        head = ("open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,"
+                "taker_buy_quote_volume,ignore\n")
+        a = parse_binance_zip(z(head + "1704067200000,42000,42100,41900,42050,120.5,1704070799999,5e6,91267,60,2.5e6,0\n"))
+        b = parse_binance_zip(z("1704070800000,42050,42200,42000,42150,100.0,1704074399999,4e6,80000,50,2e6,0\n"))
+        self.assertEqual(len(a), 1)
+        df = pd.concat([a, b])
+        self.assertTrue(pd.api.types.is_numeric_dtype(df["trades"]))
+        self.assertEqual(int(df["trades"].iloc[0]), 91267)
+        from oql import catalog
+        before = os.environ.get("OQL_CATALOG")
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["OQL_CATALOG"] = tmp
+            try:
+                m = catalog.write("binance-futures-um/BTCUSDT/1h", df, license="public", origin="test")
+                self.assertEqual(m.rows, 2)
+                self.assertEqual(int(catalog.read(m.id)["trades"].iloc[0]), 91267)
+            finally:
+                if before is None:
+                    os.environ.pop("OQL_CATALOG", None)
+                else:
+                    os.environ["OQL_CATALOG"] = before
+
     def test_fred_missing_values(self):
         from oql.sources import parse_fred
         d = parse_fred("observation_date,DGS10\n2024-01-02,3.95\n2024-01-03,.\n2024-01-04,3.99\n", "DGS10")
