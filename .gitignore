@@ -1,0 +1,13 @@
+# data never goes into git (licensed data in particular)
+catalog/
+*.parquet
+*.csv.gz
+# keys
+.databento_key
+*.key
+.env
+# python
+__pycache__/
+*.egg-info/
+.venv/
+board.html

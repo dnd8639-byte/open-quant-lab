@@ -1,0 +1,15 @@
+# Daily download of free market data into ~/lab/catalog (see collect.json there).
+# Install: sudo cp oql-collect.service oql-collect.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now oql-collect.timer
+# Check:   systemctl list-timers oql-collect.timer      Logs: journalctl -u oql-collect -n 50
+[Unit]
+Description=Open Quant Lab data collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=david
+WorkingDirectory=/home/david/lab
+Environment=OQL_LAB=/home/david/lab
+ExecStart=/home/david/open-quant-lab/.venv/bin/oql collect run
+Nice=10

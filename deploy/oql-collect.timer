@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the Open Quant Lab collector once a day (02:17 UTC, after Binance publishes yesterday's files)
+
+[Timer]
+OnCalendar=*-*-* 02:17:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Quant Lab</title>
+<style>
+:root{--bg:#f6f6f3;--panel:#ffffff;--ink:#1b2127;--mut:#68717b;--line:#e1e3e6;--grid:#eceef0;
+  --acc:#2f5d8c;--acc-soft:rgba(47,93,140,.12);--pass:#1f7a4d;--fail:#b3412f;--warn:#9a6a12;--real:#1b2127;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#121518;--panel:#1b1f23;--ink:#e7e9eb;--mut:#9aa3ab;--line:#2c3237;
+  --grid:#23282d;--acc:#7fb0e0;--acc-soft:rgba(127,176,224,.16);--pass:#5cc493;--fail:#ef8a78;--warn:#e0b45c;--real:#e7e9eb}}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,sans-serif}
+header{display:flex;align-items:baseline;gap:20px;padding:18px 20px 0;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;font-weight:650} header .sub{color:var(--mut);font-size:13px}
+nav{display:flex;gap:4px;padding:12px 20px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--mut);font:inherit;padding:8px 12px;cursor:pointer}
+nav button.on{color:var(--ink);border-color:var(--acc);font-weight:600}
+main{padding:16px 20px 40px;max-width:1400px} .hide{display:none!important}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 10px;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+.board{display:grid;grid-template-columns:repeat(7,minmax(160px,1fr));gap:10px;overflow-x:auto}
+@media (max-width:900px){.board{grid-template-columns:1fr}}
+.col h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);display:flex;justify-content:space-between;margin:0 0 8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer}
+.card:hover,.card.sel{border-color:var(--acc)} .card .id{font:11px var(--mono);color:var(--mut)} .card .t{font-weight:600}
+.card .m{color:var(--mut);font-size:12px;margin-top:3px}
+.badge{display:inline-block;font-size:11px;border:1px solid;border-radius:4px;padding:0 6px;margin:4px 4px 0 0}
+.PASS{color:var(--pass)} .FAIL{color:var(--fail)} .run{color:var(--acc)}
+.empty{color:var(--mut);font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:6px 0 4px}
+.stat .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em} .stat .v{font:600 20px var(--mono)}
+.stat .v.small{font-size:14px}
+table{border-collapse:collapse;width:100%;font-size:13px} th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600;font-size:12px} td.num{font-family:var(--mono);text-align:right} tr.click{cursor:pointer} tr.click:hover{background:var(--acc-soft)}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:12px}
+label{display:flex;flex-direction:column;font-size:11px;color:var(--mut);gap:3px;text-transform:uppercase;letter-spacing:.04em}
+select,input{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);text-transform:none;letter-spacing:0}
+button.go{font:inherit;font-weight:600;padding:7px 14px;border-radius:6px;border:1px solid var(--acc);background:var(--acc);color:var(--panel);cursor:pointer}
+button.ghost{font:inherit;padding:7px 14px;border-radius:6px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.note{color:var(--mut);font-size:12.5px;max-width:860px} .err{color:var(--fail);font-size:13px}
+pre{white-space:pre-wrap;font:12px/1.5 var(--mono);color:var(--ink);background:var(--bg);border-radius:6px;padding:10px;max-height:340px;overflow:auto}
+.chip{font-size:11px;border-radius:999px;padding:1px 8px;border:1px solid var(--line)} .chip.licensed{color:var(--warn);border-color:var(--warn)}
+.chip.public{color:var(--pass);border-color:var(--pass)} .chip.own{color:var(--acc);border-color:var(--acc)}
+svg text{font:11px system-ui,sans-serif;fill:var(--mut)} .bar{height:6px;background:var(--grid);border-radius:3px;overflow:hidden;margin-top:8px}
+.bar>div{height:100%;background:var(--acc);width:0}
+</style>
+</head>
+<body>
+<header><h1>Open Quant Lab</h1><span class="sub" id="sub">loading…</span></header>
+<nav id="tabs">
+  <button data-tab="board" class="on">Research board</button>
+  <button data-tab="lab">Permutation lab</button>
+  <button data-tab="data">Data</button>
+  <button data-tab="paper">Paper &amp; collector</button>
+  <button data-tab="ledger">Ledger</button>
+</nav>
+<main>
+<!-- BOARD -->
+<section id="t-board">
+  <div class="board" id="board"></div>
+  <div id="detail" class="hide"></div>
+</section>
+
+<!-- PERMUTATION LAB -->
+<section id="t-lab" class="hide">
+  <div class="panel">
+    <h2>Shuffle a market, watch luck build its own track record</h2>
+    <p class="note">Each permutation keeps every bar's size and shape but scrambles their order, so trends and patterns
+      disappear while volatility and fat tails stay. Run a strategy on hundreds of shuffled copies: the histogram is what
+      luck alone produces. The p-value is the share of shuffles that did at least as well as the real data.
+      Switch to <b>best of the whole search</b> to see why a search's best result needs a much higher bar than one strategy.
+      Only the first 70% of each dataset is used here, so the holdout is never touched.</p>
+    <div class="controls">
+      <label>Dataset<select id="ds"></select></label>
+      <label>What to test<select id="mode"><option value="single">one strategy</option><option value="search">best of the whole search</option></select></label>
+      <label id="l-rule">Rule<select id="rule"></select></label>
+      <span id="params" style="display:contents"></span>
+      <label id="l-side">Side<select id="side"><option>both</option><option>long</option><option>short</option></select></label>
+      <label>Permutations<select id="nperm"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label>
+      <button class="go" id="run">Run</button><button class="ghost" id="stop" disabled>Stop</button>
+    </div>
+    <div class="err" id="lab-err"></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Real Sharpe</div><div class="v" id="s-real">–</div></div>
+      <div class="stat"><div class="k">Permutations</div><div class="v" id="s-n">0</div></div>
+      <div class="stat"><div class="k">At least as good</div><div class="v" id="s-ge">0</div></div>
+      <div class="stat"><div class="k">p-value</div><div class="v" id="s-p">–</div></div>
+      <div class="stat"><div class="k">Data</div><div class="v small" id="s-data">–</div></div>
+    </div>
+    <div class="bar"><div id="lab-bar"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>Price path: real (dark) vs latest shuffles</h2><div id="paths"></div></div>
+    <div class="panel"><h2>Sharpe on shuffled data vs the real one</h2><div id="hist"></div></div>
+  </div>
+</section>
+
+<!-- DATA -->
+<section id="t-data" class="hide">
+  <div class="panel"><h2>Catalog</h2><table id="dtable"></table></div>
+  <div class="panel hide" id="dview"><h2 id="dtitle"></h2><div id="dchart"></div><div id="dcheck"></div></div>
+</section>
+
+<!-- PAPER + COLLECTOR -->
+<section id="t-paper" class="hide">
+  <div class="panel"><h2>Paper trading (no orders are ever sent)</h2><pre id="paper-status">loading…</pre>
+    <p class="note">Deploy a card that passed its holdout with <code>oql paper deploy</code>; check live against the backtest with <code>oql paper reconcile</code>.</p></div>
+  <div class="panel"><h2>Data collector</h2><pre id="collect-status">loading…</pre></div>
+</section>
+
+<!-- LEDGER -->
+<section id="t-ledger" class="hide">
+  <div class="panel"><h2>Every test ever run, pass or fail</h2><div class="stats" id="lstats"></div><table id="ltable"></table></div>
+</section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (x, d = 2) => (x === null || x === undefined || !isFinite(x)) ? "–" : Number(x).toFixed(d);
+async function api(path, opts) { const r = await fetch(path, opts); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; }
+const STAGES = ["idea", "research", "preregistered", "gate", "holdout", "paper", "archive"];
+
+// ------------------------------------------------------------------ tiny SVG charts
+function lineChart(el, series, {h = 260, yLabel = ""} = {}) {
+  const w = Math.max(320, el.clientWidth || 600), pad = {l: 44, r: 10, t: 10, b: 22};
+  const all = series.flatMap(s => s.values).filter(Number.isFinite);
+  if (!all.length) { el.innerHTML = '<p class="empty">no data</p>'; return; }
+  let lo = Math.min(...all), hi = Math.max(...all); if (hi === lo) { hi += 1; lo -= 1; }
+  const n = Math.max(...series.map(s => s.values.length));
+  const X = i => pad.l + i / Math.max(1, n - 1) * (w - pad.l - pad.r), Y = v => pad.t + (hi - v) / (hi - lo) * (h - pad.t - pad.b);
+  const ticks = [lo, (lo + hi) / 2, hi];
+  let g = ticks.map(t => `<line x1="${pad.l}" x2="${w - pad.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="${css('--grid')}"/><text x="${pad.l - 6}" y="${Y(t) + 4}" text-anchor="end">${fmt(t, Math.abs(hi - lo) < 5 ? 2 : 0)}</text>`).join("");
+  g += series.map(s => `<path d="${s.values.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1)).join("")}" fill="none" stroke="${s.color}" stroke-width="${s.width || 1.5}" opacity="${s.opacity ?? 1}"/>`).join("");
+  if (yLabel) g += `<text x="${pad.l}" y="${h - 4}">${esc(yLabel)}</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img">${g}</svg>`;
+}
+
+function histogram(el, values, real, {h = 260, label = "Sharpe ratio"} = {}) {
+  const w = Math.max(320, el.clientWidth || 600), pad = {l: 34, r: 12, t: 26, b: 26};
+  const vals = values.filter(Number.isFinite);
+  if (!vals.length && !Number.isFinite(real)) { el.innerHTML = '<p class="empty">press Run</p>'; return; }
+  let lo = Math.min(...vals, real ?? Infinity), hi = Math.max(...vals, real ?? -Infinity);
+  const span = (hi - lo) || 1; lo -= span * .05; hi += span * .05;
+  const B = 30, width = (hi - lo) / B, counts = Array(B).fill(0);
+  vals.forEach(v => counts[Math.min(B - 1, Math.floor((v - lo) / width))]++);
+  const cmax = Math.max(1, ...counts);
+  const X = v => pad.l + (v - lo) / (hi - lo) * (w - pad.l - pad.r), Y = c => h - pad.b - c / cmax * (h - pad.t - pad.b);
+  let g = `<line x1="${pad.l}" x2="${w - pad.r}" y1="${h - pad.b}" y2="${h - pad.b}" stroke="${css('--line')}"/>`;
+  counts.forEach((c, i) => { const x0 = lo + i * width, beyond = Number.isFinite(real) && x0 + width / 2 >= real;
+    g += `<rect x="${X(x0) + 1}" y="${Y(c)}" width="${Math.max(1, X(x0 + width) - X(x0) - 2)}" height="${h - pad.b - Y(c)}" fill="${beyond ? css('--fail') : css('--acc')}" opacity="${beyond ? .8 : .55}" rx="2"/>`; });
+  [lo + span * .05, (lo + hi) / 2, hi - span * .05].forEach(t => g += `<text x="${X(t)}" y="${h - 8}" text-anchor="middle">${fmt(t)}</text>`);
+  if (Number.isFinite(real)) g += `<line x1="${X(real)}" x2="${X(real)}" y1="${pad.t - 8}" y2="${h - pad.b}" stroke="${css('--real')}" stroke-width="2"/>` +
+     `<text x="${X(real) + (X(real) > w * .75 ? -6 : 6)}" y="${pad.t - 10}" text-anchor="${X(real) > w * .75 ? "end" : "start"}" style="fill:${css('--ink')};font-weight:600">real ${fmt(real)}</text>`;
+  g += `<text x="${pad.l}" y="12">${esc(label)} · ${vals.length} shuffled</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img">${g}</svg>`;
+}
+
+function dots(el, trials, {h = 220} = {}) {        // every strategy tried, by round
+  const w = Math.max(320, el.clientWidth || 600), pad = {l: 40, r: 10, t: 10, b: 22};
+  const pts = trials.filter(t => t.score > -9); if (!pts.length) { el.innerHTML = ""; return; }
+  const R = Math.max(...pts.map(t => t.round)), lo = Math.min(0, ...pts.map(t => t.score)), hi = Math.max(...pts.map(t => t.score));
+  const X = r => pad.l + r / Math.max(1, R) * (w - pad.l - pad.r), Y = v => pad.t + (hi - v) / ((hi - lo) || 1) * (h - pad.t - pad.b);
+  let g = [lo, 0, hi].map(t => `<line x1="${pad.l}" x2="${w - pad.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="${css('--grid')}"/><text x="${pad.l - 6}" y="${Y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join("");
+  g += pts.map((t, i) => `<circle cx="${X(t.round) + ((i * 37) % 11 - 5)}" cy="${Y(t.score)}" r="3" fill="${css('--acc')}" opacity=".6"/>`).join("");
+  g += `<text x="${pad.l}" y="${h - 4}">round 0 → ${R} · each dot = one strategy's development Sharpe</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">${g}</svg>`;
+}
+
+// ------------------------------------------------------------------ tabs
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  ["board", "lab", "data", "paper", "ledger"].forEach(t => $("#t-" + t).classList.toggle("hide", t !== b.dataset.tab));
+  if (b.dataset.tab === "data") loadData(); if (b.dataset.tab === "ledger") loadLedger(); if (b.dataset.tab === "paper") loadPaper();
+});
+
+// ------------------------------------------------------------------ board
+let selected = null, pollTimer = null;
+async function loadBoard() {
+  const {board, ledger, running} = await api("/api/board");
+  $("#sub").textContent = `${board.cards.length} cards · ${ledger.length} tests in the ledger · ${ledger.filter(r => r.verdict === "PASS").length} passed`;
+  $("#board").innerHTML = STAGES.map(st => {
+    const cs = board.cards.filter(c => c.stage === st);
+    return `<div class="col"><h3>${st}<span>${cs.length}</span></h3>${cs.map(c => {
+      const g = c.results.gate, ho = c.results.holdout, run = running.includes(c.id);
+      return `<div class="card ${c.id === selected ? "sel" : ""}" data-id="${esc(c.id)}"><div class="id">${esc(c.id.split("-")[0])}</div>
+        <div class="t">${esc(c.title)}</div><div class="m">${esc((c.mechanism || "").slice(0, 120))}</div>
+        ${run ? '<span class="badge run">gate running…</span>' : ""}
+        ${g ? `<span class="badge ${g.verdict}">gate ${g.verdict} · p ${fmt(g.p, 3)}</span>` : ""}
+        ${ho ? `<span class="badge ${ho.verdict}">holdout ${ho.verdict} · SR ${fmt(ho.holdout_sharpe)}</span>` : ""}</div>`;
+    }).join("") || '<p class="empty">empty</p>'}</div>`;
+  }).join("");
+  document.querySelectorAll(".card").forEach(el => el.onclick = () => { selected = el.dataset.id; loadBoard(); showCard(selected); });
+}
+
+async function showCard(id) {
+  clearTimeout(pollTimer);
+  const d = await api("/api/card/" + encodeURIComponent(id)), c = d.card, el = $("#detail");
+  el.classList.remove("hide");
+  const prog = d.progress || [], start = prog.find(e => e.status === "permuting");
+  const nulls = prog.filter(e => "null" in e).map(e => e.null), done = prog.find(e => e.status === "done");
+  const g = d.gate, live = d.running || (start && !done);
+  const real = g ? g.dev_sharpe : start ? start.real : null;
+  const nullVals = g ? g.null : nulls, N = g ? g.n_perm : start ? start.n_perm : 0;
+  const ge = nullVals.filter(v => v >= real).length, p = nullVals.length ? (1 + ge) / (nullVals.length + 1) : null;
+  el.innerHTML = `<div class="panel"><h2>Card ${esc(c.id)}</h2>
+    <div style="font-size:17px;font-weight:650">${esc(c.title)}</div><p class="note">${esc(c.mechanism)}</p>
+    <p>Stage: <b>${esc(c.stage)}</b>${c.stage === "preregistered" && !live ? ' &nbsp; <button class="go" id="rungate">Run the gate</button>' : ""}
+      ${c.stage === "gate" ? '<span class="note"> &nbsp; The holdout is one-shot and runs only from the command line: <code>oql card holdout ' + esc(c.id.split("-")[0]) + '</code></span>' : ""}</p>
+    <div class="err" id="card-err"></div>
+    ${(start || g) ? `<div class="stats">
+      <div class="stat"><div class="k">Best development Sharpe</div><div class="v">${fmt(real)}</div></div>
+      <div class="stat"><div class="k">Strategies searched</div><div class="v">${g ? g.n_trials : start.n_trials}</div></div>
+      <div class="stat"><div class="k">Shuffled reruns</div><div class="v">${nullVals.length}/${N}</div></div>
+      <div class="stat"><div class="k">${live ? "p so far" : "p-value"}</div><div class="v">${fmt(p, 3)}</div></div>
+      <div class="stat"><div class="k">Verdict</div><div class="v ${g ? g.verdict : "run"}">${g ? g.verdict : live ? "running" : "–"}</div></div></div>
+      <div class="bar"><div style="width:${N ? 100 * nullVals.length / N : 0}%"></div></div>` : ""}
+    </div>
+    ${(start || g) ? `<div class="grid2"><div class="panel"><h2>Whole-search best on shuffled data vs the real search</h2><div id="c-hist"></div></div>
+      <div class="panel"><h2>Every strategy the search tried</h2><div id="c-dots"></div></div></div>` : ""}
+    ${g ? `<div class="panel"><h2>Gate report</h2><table>
+      <tr><td>Finalist</td><td><code>${esc(JSON.stringify(g.finalist))}</code></td></tr>
+      <tr><td>Deflated Sharpe</td><td class="num">${fmt(g.deflated_sharpe, 3)}</td></tr>
+      <tr><td>Cost/delay Monte Carlo (median, 5th pct, share &gt; 0)</td><td class="num">${fmt(g.cost_mc.median)} · ${fmt(g.cost_mc.p5)} · ${fmt(100 * g.cost_mc.share_positive, 0)}%</td></tr>
+      <tr><td>Long side / short side Sharpe</td><td class="num">${fmt(g.side_beta.sharpe_long)} / ${fmt(g.side_beta.sharpe_short)}</td></tr>
+      <tr><td>Beta to the market</td><td class="num">${fmt(g.side_beta.beta_to_market)}</td></tr>
+      <tr><td>Development data ends</td><td class="num">${esc(String(g.split).slice(0, 10))}</td></tr></table></div>` : ""}
+    ${d.holdout ? `<div class="panel"><h2>Holdout (one-shot)</h2><div class="stats">
+      <div class="stat"><div class="k">Holdout Sharpe</div><div class="v">${fmt(d.holdout.holdout_sharpe)}</div></div>
+      <div class="stat"><div class="k">p-value</div><div class="v">${fmt(d.holdout.p, 3)}</div></div>
+      <div class="stat"><div class="k">Verdict</div><div class="v ${d.holdout.verdict}">${d.holdout.verdict}</div></div></div></div>` : ""}
+    <div class="panel"><h2>Pre-registration</h2><pre>${esc(d["PREREGISTRATION.md"] || "")}</pre></div>`;
+  if (start || g) { histogram($("#c-hist"), nullVals, real, {label: "best Sharpe of each shuffled search"}); if (d.trials) dots($("#c-dots"), d.trials); else $("#c-dots").innerHTML = '<p class="empty">appears when the gate finishes</p>'; }
+  const btn = $("#rungate");
+  if (btn) btn.onclick = async () => { btn.disabled = true; try { await api("/api/gate/" + encodeURIComponent(c.id), {method: "POST"}); setTimeout(() => showCard(id), 800); } catch (e) { $("#card-err").textContent = e.message; btn.disabled = false; } };
+  if (live) pollTimer = setTimeout(() => { loadBoard(); showCard(id); }, 1000);
+}
+
+// ------------------------------------------------------------------ permutation lab
+let RULES = {}, stopFlag = false;
+async function initLab() {
+  RULES = await api("/api/rules");
+  $("#rule").innerHTML = Object.keys(RULES).map(r => `<option>${r}</option>`).join("");
+  $("#rule").value = "momentum"; renderParams();
+  $("#rule").onchange = renderParams;
+  $("#mode").onchange = () => ["#l-rule", "#params", "#l-side"].forEach(s => $(s).classList.toggle("hide", $("#mode").value === "search"));
+}
+function renderParams() {
+  const ps = RULES[$("#rule").value].params;
+  $("#params").innerHTML = Object.entries(ps).map(([k, vals]) => `<label>${k}<select data-p="${k}">${vals.map(v => `<option>${v}</option>`).join("")}</select></label>`).join("");
+  if ($("#rule").value === "ma_cross") { $('[data-p="fast"]').value = 20; $('[data-p="slow"]').value = 100; }
+  if ($("#rule").value === "momentum") $('[data-p="lookback"]').value = 60;
+}
+$("#stop").onclick = () => stopFlag = true;
+$("#run").onclick = async () => {
+  const ds = $("#ds").value, mode = $("#mode").value, rule = $("#rule").value, side = $("#side").value, N = +$("#nperm").value;
+  const params = {}; document.querySelectorAll("[data-p]").forEach(s => params[s.dataset.p] = +s.value);
+  const q = seed => `/api/explore?ds=${encodeURIComponent(ds)}&mode=${mode}&rule=${rule}&side=${side}&params=${encodeURIComponent(JSON.stringify(params))}&seed=${seed}`;
+  $("#lab-err").textContent = ""; stopFlag = false; $("#run").disabled = true; $("#stop").disabled = false;
+  const ink = css("--real"), acc = css("--acc");
+  try {
+    const real = await api(q(-1));
+    $("#s-real").textContent = fmt(real.sharpe); $("#s-data").textContent = `${real.start} → ${real.end}`;
+    const nulls = [], shuffled = [];
+    for (let k = 0; k < N && !stopFlag; k++) {
+      const r = await api(q(k));
+      nulls.push(r.sharpe); shuffled.push(r.path); if (shuffled.length > 6) shuffled.shift();
+      const ge = nulls.filter(v => v >= real.sharpe).length;
+      $("#s-n").textContent = nulls.length; $("#s-ge").textContent = ge; $("#s-p").textContent = fmt((1 + ge) / (nulls.length + 1), 3);
+      $("#lab-bar").style.width = (100 * nulls.length / N) + "%";
+      lineChart($("#paths"), [...shuffled.map((p, i) => ({values: p, color: acc, width: i === shuffled.length - 1 ? 1.6 : 1, opacity: i === shuffled.length - 1 ? .95 : .18})),
+                              {values: real.path, color: ink, width: 2}], {yLabel: "growth of 1 (development data)"});
+      histogram($("#hist"), nulls, real.sharpe, {label: mode === "search" ? "best Sharpe of the whole search, per shuffle" : "strategy Sharpe, per shuffle"});
+    }
+  } catch (e) { $("#lab-err").textContent = e.message; }
+  $("#run").disabled = false; $("#stop").disabled = true;
+};
+
+// ------------------------------------------------------------------ data + ledger
+let DATASETS = [];
+async function loadDatasets() {
+  DATASETS = await api("/api/datasets");
+  const bars = DATASETS.filter(m => m.kind === "bars");
+  $("#ds").innerHTML = bars.map(m => `<option>${esc(m.id)}</option>`).join("") || "<option disabled>no price data yet: oql data ...</option>";
+  const pick = bars.find(m => m.id.startsWith("binance/BTC")) || bars[0]; if (pick) $("#ds").value = pick.id;
+}
+async function loadData() {
+  $("#dtable").innerHTML = `<tr><th>Dataset</th><th>Licence</th><th>Kind</th><th>Rows</th><th>From</th><th>To</th></tr>` +
+    DATASETS.map(m => `<tr class="click" data-id="${esc(m.id)}"><td>${esc(m.id)}</td><td><span class="chip ${m.license}">${m.license}</span></td><td>${m.kind}</td>
+      <td class="num">${m.rows.toLocaleString()}</td><td>${esc(m.start.slice(0, 10))}</td><td>${esc(m.end.slice(0, 10))}</td></tr>`).join("");
+  document.querySelectorAll("#dtable tr.click").forEach(tr => tr.onclick = async () => {
+    const id = tr.dataset.id; $("#dview").classList.remove("hide"); $("#dtitle").textContent = id; $("#dcheck").textContent = "checking…";
+    const b = await api("/api/bars?ds=" + encodeURIComponent(id));
+    lineChart($("#dchart"), [{values: b.values, color: css("--acc"), width: 1.5}], {yLabel: `${b.column} · ${b.start} → ${b.end} · ${b.rows.toLocaleString()} rows`});
+    const c = await api("/api/check?ds=" + encodeURIComponent(id));
+    $("#dcheck").innerHTML = (c.issues.length ? c.issues.map(x => `<p class="err">issue: ${esc(x)}</p>`).join("") : '<p class="PASS">no integrity issues</p>') +
+      (c.warnings || []).map(x => `<p class="note">warning: ${esc(x)}</p>`).join("");
+  });
+}
+async function loadPaper() {
+  const [p, c] = await Promise.all([api("/api/paper"), api("/api/collect")]);
+  $("#paper-status").textContent = p.status; $("#collect-status").textContent = c.status;
+}
+async function loadLedger() {
+  const {ledger} = await api("/api/board");
+  const g = ledger.filter(r => r.kind === "gate"), trials = g.reduce((a, r) => a + (+r.n_trials || 0), 0);
+  $("#lstats").innerHTML = [["Tests", ledger.length], ["Passed", ledger.filter(r => r.verdict === "PASS").length], ["Strategies searched", trials]]
+    .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  $("#ltable").innerHTML = `<tr><th>UTC</th><th>Card</th><th>Test</th><th>Verdict</th><th>p</th><th>Sharpe</th><th>Strategies</th></tr>` +
+    ledger.slice().reverse().map(r => `<tr><td>${esc(r.utc)}</td><td>${esc(r.card)}</td><td>${esc(r.kind)}</td><td class="${r.verdict}">${esc(r.verdict)}</td>
+      <td class="num">${esc(r.p)}</td><td class="num">${esc(r.sharpe)}</td><td class="num">${esc(r.n_trials)}</td></tr>`).join("");
+}
+
+(async () => { await Promise.all([loadBoard(), loadDatasets(), initLab()]); setInterval(loadBoard, 5000); })();
+</script>
+</body>
+</html>
