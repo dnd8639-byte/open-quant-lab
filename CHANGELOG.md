@@ -3,6 +3,13 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.3.3
+- `oql data check` compares prices with a relative tolerance. Prices stored as decimals round slightly, and at large
+  levels (Nikkei futures in the tens of thousands) that rounding was being reported as broken bars.
+- Large one-bar moves are split in two: spikes that reverse on the next bar (the mark of a bad price) and moves that
+  stick (real events, or an unadjusted futures roll). Each warning names a date to look at, as does the gap warning.
+  This does not change any test result.
+
 ## 0.3.2
 - **(affects results)** A trade is now a change of direction (enter, exit or flip). Positions are resized every
   bar to hold volatility steady; those resizes are still charged as costs, but they were also being counted as

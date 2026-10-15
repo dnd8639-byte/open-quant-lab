@@ -203,8 +203,9 @@ def check(ds_id: str) -> dict:
     bad_px = int((df[["open", "high", "low", "close"]] <= 0).any(axis=1).sum())
     if bad_px:
         issues.append(f"{bad_px} bars with a non-positive price")
-    incons = int(((df["low"] > df[["open", "close"]].min(axis=1) + 1e-12) |
-                  (df["high"] < df[["open", "close"]].max(axis=1) - 1e-12)).sum())
+    tol = 1e-9 * df[["open", "high", "low", "close"]].abs().max(axis=1)   # relative: prices stored as decimals round
+    incons = int(((df["low"] > df[["open", "close"]].min(axis=1) + tol) |
+                  (df["high"] < df[["open", "close"]].max(axis=1) - tol)).sum())
     if incons:
         issues.append(f"{incons} bars where open/close fall outside low-high")
     nan = int(df[BAR_COLUMNS].isna().any(axis=1).sum())
@@ -218,7 +219,7 @@ def check(ds_id: str) -> dict:
         rep["gaps"] = int(len(big))
         rep["largest_gap"] = str(big.max()) if len(big) else "-"
         if len(big):
-            warnings.append(f"{len(big)} gaps longer than expected (largest {big.max()})")
+            warnings.append(f"{len(big)} gaps longer than expected (largest {big.max()}, ending {big.idxmax()})")
         if step <= pd.Timedelta("1D"):                         # bars must sit on the grid, or markets will not line up
             off = df.index[(df.index - df.index.floor(step)) != pd.Timedelta(0)]
             rep["off_grid"] = int(len(off))
@@ -229,8 +230,16 @@ def check(ds_id: str) -> dict:
         r = np.log(df["close"].where(df["close"] > 0)).diff().dropna()
     if len(r) > 50:
         z = (r - r.median()).abs() / (1.4826 * (r - r.median()).abs().median() + 1e-12)
-        jumps = int((z > 25).sum())
-        rep["jumps"] = jumps
-        if jumps:
-            warnings.append(f"{jumps} one-bar moves over 25 robust standard deviations (check for bad ticks or unadjusted rolls)")
+        big = z > 25
+        nxt = r.shift(-1)
+        spike = big & (np.sign(nxt) == -np.sign(r)) & (nxt.abs() >= 0.8 * r.abs())   # out and straight back: a bad price
+        sticks = big & ~spike & ~spike.shift(1, fill_value=False)                      # the snap-back bar is not a new move
+        rep["jumps"], rep["spikes"] = int(sticks.sum()), int(spike.sum())
+        if spike.any():
+            warnings.append(f"{int(spike.sum())} one-bar spikes that reverse on the next bar, the mark of a bad price "
+                            f"(first {spike.idxmax()})")
+        if sticks.any():
+            t = r[sticks].abs().idxmax()
+            warnings.append(f"{int(sticks.sum())} one-bar moves over 25 robust standard deviations that do not reverse "
+                            f"(largest {np.expm1(r[t]):+.1%} at {t}): real events, or an unadjusted futures roll")
     return rep

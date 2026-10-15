@@ -50,6 +50,26 @@ class TestCatalog(Base):
         self.assertIn("non-positive", issues)
         self.assertIn("outside low-high", issues)
 
+    def test_check_tells_bad_prices_from_real_moves(self):
+        """Rounding at large prices is not an error; a price that jumps and snaps straight back is; a move that sticks
+        is reported as a possible real event or roll."""
+        from oql import catalog, synthetic
+        df = synthetic.noise_market(n=400) * 300                  # prices in the tens of thousands, like Nikkei futures
+        df.iloc[50, df.columns.get_loc("high")] = df[["open", "close"]].iloc[50].max() * (1 - 1e-13)   # rounding only
+        df.iloc[100, df.columns.get_loc("close")] *= 1.6                                               # bad print...
+        df.iloc[100, df.columns.get_loc("high")] = df[["open", "close"]].iloc[100].max()
+        df.iloc[200:, df.columns.get_loc("close")] *= 1.6                                              # ...vs a move that sticks
+        for c in ("open", "high", "low"):
+            df.iloc[201:, df.columns.get_loc(c)] *= 1.6
+        df.iloc[200, df.columns.get_loc("high")] = df[["open", "close"]].iloc[200].max()
+        catalog.write("synth/moves/1d", df, license="own", origin="test")
+        r = catalog.check("synth/moves/1d")
+        self.assertEqual(r["issues"], [])
+        self.assertEqual((r["spikes"], r["jumps"]), (1, 1))
+        text = " ".join(r["warnings"])
+        self.assertIn("mark of a bad price", text)
+        self.assertRegex(text, r"do not reverse \(largest \+6\d\.\d%")          # +60% plus that day's own move
+
     def test_check_finds_bars_off_the_grid(self):
         """Seen in real Binance data: after the February 2018 outage, 43 hourly bars opened 28 minutes past the hour."""
         from oql import catalog, synthetic
