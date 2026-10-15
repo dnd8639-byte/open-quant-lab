@@ -4,6 +4,10 @@ A fully open research pipeline for trading strategies: a data catalog, a backtes
 
 Designed and built by David DeConti. MIT licence. Inspired by the shape of QuantConnect's research pipeline (Ideas → Research → Backtest → Paper → Live), rebuilt so that no part of it is paid, and so that a strategy cannot be promoted by trying things until one looks good.
 
+**Live demo:** the validation gate runs in your browser at [dnd8639-byte.github.io/open-quant-lab](https://dnd8639-byte.github.io/open-quant-lab/).
+It is a JavaScript port of the engine, rules and search; `python demo/check_parity.py` confirms that it computes the same
+numbers as this code.
+
 ```
 idea ──> research ──> preregistered ──> gate ──> holdout ──> paper
   explore freely   rules fingerprinted   whole-search      one-shot     Raspberry Pi
@@ -86,6 +90,7 @@ Holdouts are deliberately not runnable from the page: they are one-shot, so they
 | `oql/paper.py` | Paper trading: journal, revisions, reconciliation |
 | `oql/agent_tools.py`, `oql/mcp_server.py` | What an AI assistant may do, served over MCP |
 | `oql/ledger.py`, `oql/locks.py` | Every test counted; freeze fingerprints and one-shot locks |
+| `demo/check_parity.py` | Checks that the live demo page computes the same numbers as the Python lab |
 
 ## Roadmap
 
