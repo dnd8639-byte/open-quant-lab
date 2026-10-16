@@ -167,6 +167,30 @@ class TestGates(Base):
         self.assertGreater(np.abs(live).sum(), 0)
 
 
+class TestReporting(Base):
+    def test_efficiency_explorations_are_counted_at_the_freeze(self):
+        from oql import board, catalog, efficiency as E, ledger
+        catalog.write("binance/SYN/1h", E.synthetic_bars(True, n_days=600, seed=9), license="own", origin="test")
+        ledger.append(os.environ["OQL_LAB"], card="efficiency-lab", family="efficiency-lab", kind="explore", n_trials=21,
+                      data="binance/SYN/1h", note="gate check")
+        c = board.new_card("gated", "Trend rules are paid only on efficient days, so skip forecast-choppy days.")
+        d = board.card_dir(c)
+        with open(os.path.join(d, "PREREGISTRATION.md"), "w") as f:
+            f.write("# done\n")
+        with open(os.path.join(d, "experiment.py"), "w") as f:
+            f.write('from oql.experiment import Experiment\nEXPERIMENT = Experiment(datasets=["binance/SYN/1h"])\n')
+        board.start(c["id"]); board.freeze(c["id"])
+        import json
+        with open(os.path.join(d, "frozen.json")) as f:
+            self.assertEqual(json.load(f)["efficiency_explorations"], 21)
+
+    def test_missing_project_data_is_explained_not_an_error(self):
+        from oql import projects
+        ev = []
+        projects.run("p04_momentum_regimes", {}, ev.append, threading.Event())
+        self.assertTrue(any("pull-french" in e.get("log", "") for e in ev))
+
+
 class TestAgentGates(Base):
     def test_assistant_can_declare_and_explore_gates(self):
         from oql import agent_tools as T, catalog, efficiency as E

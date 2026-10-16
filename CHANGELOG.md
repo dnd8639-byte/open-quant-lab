@@ -3,6 +3,14 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.5.1
+- The gate report counts efficiency studies and gate checks on the card's datasets made before its freeze
+  ("Efficiency-lab explorations on these datasets before the freeze"). They shape which ideas get proposed, so they
+  belong next to the result. Recorded at the freeze; cards frozen earlier say "not recorded".
+- A project whose data is not in the catalog says what is missing and how to add it, instead of failing.
+- `oql serve` on a port already in use says so (it was reported as a network error).
+- No more "All-NaN slice" warning when a feature has no values yet early in a study.
+
 ## 0.5.0
 - **Efficiency lab** (`oql/efficiency.py`, `oql efficiency study`, the dashboard's Efficiency tab, the assistant's
   `efficiency_study` tool). Is the next day's (hourly bars) or hour's (minute bars) efficiency ratio predictable?

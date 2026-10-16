@@ -180,6 +180,9 @@ def freeze(cid: str, lab=None) -> dict:
     if os.path.exists(exp_log):                            # exploration done before the freeze is part of the record
         with open(exp_log) as f:
             frozen["explorations"] = sum(1 for l in f if l.strip())
+    # efficiency studies and gate checks on the same data count too: they shape which strategies get proposed
+    frozen["efficiency_explorations"] = sum(int(r["n_trials"] or 1) for r in ledger.rows(lab or lab_dir())
+                                            if r["card"] == "efficiency-lab" and r["data"] in exp.datasets)
     with open(os.path.join(d, "frozen.json"), "x") as f:
         json.dump(frozen, f, indent=1)
     _move(card, "preregistered", "rules and experiment fingerprinted")
@@ -223,6 +226,7 @@ def run_gate(cid: str, lab=None, procs=None) -> dict:
         prog.close()
     rep["family_trials_before"] = ledger.trials_in_family(lab, card["family"])
     rep["explorations_before_freeze"] = frozen.get("explorations", 0)
+    rep["efficiency_explorations_before_freeze"] = frozen.get("efficiency_explorations", "not recorded")
     from . import __version__
     rep["oql_version"], rep["oql_version_at_freeze"] = __version__, frozen.get("oql_version", "not recorded")
     trials = rep.pop("trials")
@@ -313,6 +317,7 @@ def gate_markdown(card: dict, r: dict) -> str:
 | Strategies tried in this search | {r['n_trials']} |
 | Strategies tried earlier in this family | {r['family_trials_before']} |
 | Exploratory evaluations before the freeze | {r.get('explorations_before_freeze', 0)} |
+| Efficiency-lab explorations on these datasets before the freeze | {r.get('efficiency_explorations_before_freeze', 'not recorded')} |
 | Best (finalist) | `{json.dumps(r['finalist'])}` |
 | Development Sharpe | {r['dev_sharpe']:.2f} (data before {r['split'][:10]}) |
 | Best Sharpe on shuffled data | median {r['null_median']:.2f}, 95th percentile {r['null_p95']:.2f} ({r['n_perm']} reruns) |

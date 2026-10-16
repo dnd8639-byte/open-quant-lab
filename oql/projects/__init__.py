@@ -53,4 +53,10 @@ def _fits(meta, p) -> bool:
 def run(pid: str, params: dict, emit, stop):
     m = module(pid)
     defaults = {p["name"]: p.get("default") for p in m.PARAMS}
-    m.run({**defaults, **(params or {})}, emit, stop)
+    try:
+        m.run({**defaults, **(params or {})}, emit, stop)
+    except KeyError as e:                                      # a dataset the project needs is not in the catalog yet
+        if "not in the catalog" not in str(e):
+            raise
+        how = getattr(m, "HOW_TO_GET", "") or "oql data pull-french (factor tables) or oql data import-projects DIR"
+        emit({"log": f"Missing data: {str(e).strip(chr(39))}. To add it: {how}"})

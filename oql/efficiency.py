@@ -151,14 +151,18 @@ def features(ds: str, per: pd.DataFrame, horizon: str, groups: list[str]) -> tup
         if "calendar/us_releases/1d" in have:
             cal = _read("calendar/us_releases/1d")
             ecol = next((c for c in cal.columns if "event" in c.lower()), cal.columns[0])
-            clock = {"fomc": "14:00", "cpi": "08:30", "payroll": "08:30", "eia": "10:30"}
-            for key, hhmm in clock.items():
-                days = cal.index[cal[ecol].astype(str).str.lower().str.contains(key)]
+            labels = cal[ecol].astype(str).str.lower()
+            covered = (idx >= cal.index.min().normalize()) & (idx <= cal.index.max().normalize() + pd.Timedelta(days=1))
+            for key, words, hhmm in [("fomc", ["fomc"], "14:00"), ("cpi", ["cpi"], "08:30"),
+                                     ("payrolls", ["nfp", "payroll", "employment"], "08:30"), ("eia", ["eia"], "10:30")]:
+                days = cal.index[labels.str.contains("|".join(words))]
                 if horizon == "daily":
-                    cols[f"release_{key}"] = idx.normalize().isin(days.normalize()).astype(float)
+                    hit = idx.normalize().isin(days.normalize())
                 else:
-                    when = pd.DatetimeIndex([pd.Timestamp(f"{d.strftime('%Y-%m-%d')} {hhmm}", tz="America/New_York").tz_convert("UTC") for d in days])
-                    cols[f"release_{key}"] = idx.isin(when.floor("1h")).astype(float)
+                    when = pd.DatetimeIndex([pd.Timestamp(f"{d.strftime('%Y-%m-%d')} {hhmm}", tz="America/New_York").tz_convert("UTC")
+                                             for d in days])
+                    hit = idx.isin(when.floor("1h"))
+                cols[f"release_{key}"] = np.where(covered, hit.astype(float), np.nan)   # outside the calendar: unknown, not "no release"
         else:
             notes.append("calendar: no calendar/us_releases/1d in the catalog")
     sym = _symbol(ds)
@@ -214,11 +218,16 @@ def features(ds: str, per: pd.DataFrame, horizon: str, groups: list[str]) -> tup
 def _cftc_btc(idx: pd.DatetimeIndex) -> np.ndarray:
     d = _read("cftc/financial/1w")
     name = next(c for c in d.columns if "market" in c.lower() and "name" in c.lower())
-    rows = d[d[name].astype(str).str.upper().str.contains("BITCOIN") & ~d[name].astype(str).str.upper().str.contains("MICRO")]
-    if rows.empty:
+    names = d[name].astype(str).str.upper()
+    btc = names[names.str.contains("BITCOIN") & ~names.str.contains("MICRO|NANO|ETHER")]
+    if btc.empty:
         raise ValueError("no bitcoin rows in cftc/financial/1w")
-    lo = next(c for c in rows.columns if "lev" in c.lower() and "long" in c.lower() and "all" in c.lower() and "pct" not in c.lower() and "chang" not in c.lower())
-    sh = next(c for c in rows.columns if "lev" in c.lower() and "short" in c.lower() and "all" in c.lower() and "pct" not in c.lower() and "chang" not in c.lower())
+    rows = d[names == btc.value_counts().index[0]]                     # the main CME contract: the longest history
+
+    def col(side):
+        bad = ("pct", "chang", "trader", "conc")
+        return next(c for c in rows.columns if all(w in c.lower() for w in ("lev", side, "all")) and not any(b in c.lower() for b in bad))
+    lo, sh = col("long"), col("short")
     oi = next(c for c in rows.columns if c.lower().startswith("open_interest_all"))
     val = (pd.to_numeric(rows[lo], errors="coerce") - pd.to_numeric(rows[sh], errors="coerce")) / pd.to_numeric(rows[oi], errors="coerce")
     rel = pd.DatetimeIndex(pd.to_datetime(rows["released"], utc=True))
@@ -229,7 +238,9 @@ def _cftc_btc(idx: pd.DatetimeIndex) -> np.ndarray:
 # ---------------------------------------------------------------------------------------------- models
 def fit_predict(Xtr, ytr, Xte, model="ridge", lam=10.0):
     """Standardize on the training rows only, fit, predict. Missing values are filled with training medians."""
-    med = np.nanmedian(Xtr, axis=0)
+    with np.errstate(all="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore", RuntimeWarning)        # a column with no values yet: filled with 0
+        med = np.nanmedian(Xtr, axis=0)
     med = np.where(np.isfinite(med), med, 0.0)
     Xtr = np.where(np.isfinite(Xtr), Xtr, med); Xte = np.where(np.isfinite(Xte), Xte, med)
     if model == "trees":

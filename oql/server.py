@@ -254,7 +254,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port: int = 8765, open_browser: bool = True):
     os.environ.setdefault("OMP_NUM_THREADS", "1")
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        if e.errno in (48, 98):                                # macOS / Linux: address already in use
+            raise SystemExit(f"port {port} is already in use: another `oql serve` is probably running. Stop it "
+                             f"(lsof -ti :{port} | xargs kill) or use --port {port + 1}.")
+        raise
     srv.daemon_threads = True                                # open live streams never keep the server alive
     url = f"http://127.0.0.1:{port}/"
     print(f"Open Quant Lab dashboard: {url}   (lab: {board.lab_dir()}; Control + C stops it)", flush=True)
