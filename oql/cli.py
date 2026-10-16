@@ -9,6 +9,8 @@ DATA
   oql data import-databento DIR [--roots ES,CL]  licensed: stays on this machine
   oql data import-calendar FILE                  release calendar (date,event)
   oql data import-pi FILE                        the Pi's hourly order-book features
+  oql data pull-french [--dir DIR]               Fama-French factor tables (free; or from local zips)
+  oql data import-projects DIR                   the mini-projects' option chain and trades files
 
 PIPELINE
   oql card new "TITLE" --mechanism "WHY IT SHOULD WORK"
@@ -33,6 +35,10 @@ COLLECTOR (run daily on the Pi)
   oql collect init           write collect.json with the default jobs
   oql collect run [--job NAME] [--force]
   oql collect status
+
+EFFICIENCY (development data only; every run is logged in the ledger; see docs/EFFICIENCY.md)
+  oql efficiency study DATASET [--groups calendar,funding,basis,macro,positioning,orderbook] [--model ridge|trees]
+  oql efficiency gates DATASET "STRATEGY" [--cost 2]   every efficiency gate on one strategy, e.g. "momentum lookback=20"
 
 AI ASSISTANT (Model Context Protocol server; see docs/AGENTS.md)
   oql mcp                    run the lab's tools for an AI assistant over stdio
@@ -85,6 +91,12 @@ def _data(a):
         m = sources.calendar(a.file); print(f"{m.id}: {m.rows} events")
     elif a.cmd == "import-pi":
         m = sources.pi_hourly(a.file); print(f"{m.id}: {m.rows} hours")
+    elif a.cmd == "pull-french":
+        for name in sources.FRENCH:
+            m = sources.french(name, a.dir); print(f"{m.id}: {m.rows} months {m.start[:7]} -> {m.end[:7]}")
+    elif a.cmd == "import-projects":
+        for m in sources.import_projects(a.dir):
+            print(f"{m.id}: {m.rows} rows ({m.license})")
 
 
 def _card(a):
@@ -131,6 +143,8 @@ def main(argv=None):
     x = d.add_parser("import-databento"); x.add_argument("dir"); x.add_argument("--roots", default="")
     x = d.add_parser("import-calendar"); x.add_argument("file")
     x = d.add_parser("import-pi"); x.add_argument("file")
+    x = d.add_parser("pull-french"); x.add_argument("--dir", default=None)
+    x = d.add_parser("import-projects"); x.add_argument("dir")
 
     c = sub.add_parser("card").add_subparsers(dest="cmd", required=True)
     x = c.add_parser("new"); x.add_argument("title"); x.add_argument("--mechanism", default="")
@@ -149,6 +163,9 @@ def main(argv=None):
     k = sub.add_parser("collect").add_subparsers(dest="cmd", required=True)
     k.add_parser("init"); k.add_parser("status")
     x = k.add_parser("run"); x.add_argument("--job", default=None); x.add_argument("--force", action="store_true")
+    e = sub.add_parser("efficiency").add_subparsers(dest="cmd", required=True)
+    x = e.add_parser("study"); x.add_argument("dataset"); x.add_argument("--groups", default=""); x.add_argument("--model", default="ridge")
+    x = e.add_parser("gates"); x.add_argument("dataset"); x.add_argument("strategy"); x.add_argument("--cost", type=float, default=2.0)
     sub.add_parser("mcp")
     s = sub.add_parser("serve"); s.add_argument("--port", type=int, default=8765); s.add_argument("--no-browser", action="store_true")
 
@@ -189,6 +206,8 @@ def main(argv=None):
                 collect.run(only=a.job, force=a.force)
             else:
                 print(collect.status())
+        elif a.area == "efficiency":
+            _efficiency(a)
         elif a.area == "mcp":
             from .mcp_server import serve as mcp_serve
             mcp_serve()
@@ -201,13 +220,44 @@ def main(argv=None):
             for r in rows:
                 print(f"{r['utc']}  {r['kind']:8s} {r['verdict']:5s} p={r['p']:7s} SR={r['sharpe']:7s} trials={r['n_trials']:4s} {r['card']}")
             tests = [r for r in rows if r["kind"] in ("gate", "holdout")]
-            n, x = len(tests), len(rows) - len(tests)
+            n = len(tests)
+            x = sum(int(r["n_trials"] or 1) for r in rows if r["kind"] == "explore")   # a gate check row stands for many settings
             print(f"{n} test{'' if n == 1 else 's'} ({sum(r['verdict'] == 'PASS' for r in tests)} passed) · "
                   f"{x} exploration{'' if x == 1 else 's'} before freezes")
     except (BoardError, LockError, KeyError, ValueError) as e:
         sys.exit(f"refused: {e}")
     except OSError as e:                                   # network problems: one clear line, not a traceback
         sys.exit(f"network error: {e}. Check the connection; if it mentions certificates, run `pip install -e .` again.")
+
+
+def _efficiency(a):
+    import threading
+    from . import efficiency as E
+    last, logs = {}, []
+
+    def emit(ev):
+        if "log" in ev:
+            print(" ", ev["log"], flush=True)
+        for k in ("stat", "check", "table"):
+            if k in ev:
+                last[(k, ev[k])] = ev
+    if a.cmd == "study":
+        params = {"dataset": a.dataset, "model": a.model, **{g: True for g in a.groups.split(",") if g}}
+        E.run(params, emit, threading.Event())
+    else:
+        E.gate_check({"dataset": a.dataset, "strategy": a.strategy, "cost_bps": a.cost}, emit, threading.Event())
+    for (k, _), ev in last.items():
+        if k == "check":
+            print(f"  [{'pass' if ev['passed'] else 'FAIL'}] {ev['check']}: {ev['detail']}")
+    for (k, _), ev in last.items():
+        if k == "stat":
+            v = ev["value"]
+            print(f"  {ev['label']}: {format(v, ev['fmt'].replace(',', '')) if isinstance(v, (int, float)) else v}")
+    for (k, _), ev in last.items():
+        if k == "table":
+            print(f"\n  {ev['title']}\n  " + " | ".join(ev["columns"]))
+            for r in ev["rows"]:
+                print("  " + " | ".join(str(x) for x in r))
 
 
 if __name__ == "__main__":

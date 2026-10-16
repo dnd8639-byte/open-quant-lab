@@ -470,3 +470,55 @@ class TestAgent(Base):
         self.assertEqual((cheap["cost_bps"], dear["cost_bps"]), (1.0, 25.0))
         self.assertLess(dear["sharpe_dev"], cheap["sharpe_dev"] - 1.0)                # daily reversal pays heavily for costs
         self.assertGreater(dear["direction_changes_per_year"], 50)
+
+
+class TestLive(Base):
+    def test_exchange_parsers_and_efficiency(self):
+        from oql import market
+        k = {"error": [], "result": {"XXBTZUSD": [[1700000000, "100", "101", "99", "100.5", "100.2", "1.5", 9],
+                                                  [1700000060, "100.5", "102", "100", "101.5", "101", "2.0", 7]], "last": 1700000060}}
+        a = market.parse_kraken_ohlc(k)
+        self.assertEqual(a.shape, (2, 6)); self.assertEqual(a[0, 0], 1700000000 * 1000); self.assertEqual(a[1, 4], 101.5)
+        self.assertEqual(market.parse_kraken_ticker({"error": [], "result": {"X": {"a": ["101", "1", "1"], "b": ["100", "1", "1"]}}}), (100.0, 101.0))
+        cb = market.parse_coinbase_candles([[1700000060, 100, 102, 100.5, 101.5, 2.0], [1700000000, 99, 101, 100, 100.5, 1.5]])
+        self.assertEqual(list(cb[:, 0]), [1700000000 * 1000, 1700000060 * 1000])          # oldest first
+        self.assertEqual(list(cb[0, 1:5]), [100, 101, 99, 100.5])                          # open high low close
+        bn = market.parse_binance_klines([[1700000000000, "100", "101", "99", "100.5", "1.5", 1700000059999, "0", 9, "0", "0", "0"]])
+        self.assertEqual(bn[0, 4], 100.5)
+        self.assertEqual(market.parse_binance_book({"bidPrice": "100", "askPrice": "100.1"}), (100.0, 100.1))
+        straight, zigzag = np.arange(200.0), 100 + np.tile([0.0, 1.0], 100)
+        self.assertAlmostEqual(market.rolling_efficiency(straight)[-1], 1.0)
+        self.assertLess(market.rolling_efficiency(zigzag)[-1], 0.05)
+        bars = np.column_stack([np.arange(200) * 60000, straight, straight + 1, straight - 1, straight, np.ones(200)])
+        ev = market.events_from(bars, 199.0, 199.2, "kraken", "BTC", [(0, 10.0)])
+        kinds = {e.get("chart") or e.get("stat") for e in ev}
+        self.assertTrue({"price", "er", "vol", "spread"} <= kinds)
+
+    def test_jobs_stream_events_then_end(self):
+        from oql import live
+        def fn(p, emit, stop):
+            for i in range(3):
+                emit({"stat": "i", "label": "i", "value": i})
+            emit({"stat": "nan", "label": "nan", "value": float("nan")})
+        job = live.start("test", {}, fn)
+        out = []
+        live.sse(out.append, job)
+        text = "".join(out)
+        self.assertIn('"value": 2', text); self.assertIn('"value": null', text)          # NaN becomes null
+        self.assertIn('"done": true', text); self.assertTrue(text.endswith("event: end\ndata: {}\n\n"))
+
+    def test_projects_run_live_and_pass_their_checks(self):
+        import threading
+        from oql import catalog, projects, synthetic
+        catalog.write("binance/TEST/1d", synthetic.noise_market(n=900, seed=2), license="own", origin="test")
+        listing = {p["id"]: p for p in projects.listing()}
+        self.assertEqual(len(listing), 10)
+        self.assertIn("binance/TEST/1d", listing["p03_overfitting_detector"]["params"][0]["options"])
+        self.assertIn("french/F-F_Momentum_Factor/1mo", listing["p04_momentum_regimes"]["missing"])   # no factors imported here
+        for pid, params in [("p03_overfitting_detector", {"dataset": "binance/TEST/1d", "rules": 200}),
+                            ("p06_american_put", {"finest": 300}), ("p07_autodiff_greeks", {"paths": 5000, "repeats": 100})]:
+            ev = []
+            projects.run(pid, params, ev.append, threading.Event())
+            checks = [e for e in ev if "check" in e]
+            self.assertTrue(checks and all(c["passed"] for c in checks), (pid, checks))
+            self.assertTrue(any("chart" in e for e in ev))

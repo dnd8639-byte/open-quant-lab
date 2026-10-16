@@ -43,6 +43,8 @@ python examples/quickstart.py
 oql data pull-fred DGS10 CPIAUCSL                 # free, no key
 oql data pull-binance BTCUSDT --interval 1h --start 2018-01
 oql data import-databento ../state/v3/contracts --roots ES,CL,GC   # licensed: stays local
+oql data pull-french                              # Fama-French factors, for the projects
+oql data import-projects ../quant-projects/data   # the projects' option chain (licensed) and trades
 oql data list
 oql data check
 
@@ -55,6 +57,8 @@ oql card holdout 1          # one shot
 oql board --html board.html
 oql ledger
 oql serve                   # the dashboard: live gate runs, the permutation lab, data, ledger
+oql efficiency study binance/BTCUSDT/1h --groups funding,basis,macro   # is efficiency predictable? (dev data, logged)
+oql efficiency gates binance/BTCUSDT/1h "momentum lookback=20"          # does an efficiency gate help this strategy?
 oql paper deploy 1 --feed binance/BTCUSDT/1h=binanceus:BTC/USDT:1h   # after a holdout PASS
 oql collect init && oql collect run                                  # keep free data current (Pi)
 ```
@@ -69,6 +73,16 @@ oql collect init && oql collect run                                  # keep free
   distribution of luck one permutation at a time. Switch to "best of the whole search" to see selection bias.
   Uses only the first 70% of each dataset, so it never touches a holdout.
 - **Data** and **Ledger**: the catalog with quality checks, and every test ever run.
+- **Projects**: ten quant mini-projects (tail risk, seasonality, overfitting, momentum crashes, factor neutrality,
+  American options, autodiff Greeks, implied distributions, Hawkes processes, news diffusion) running live on the
+  catalog's data. Each runs its known-answer checks first; charts fill in as the work happens.
+- **Live market**: price, the rolling one-hour efficiency ratio, volatility and the spread from public exchange data
+  (Kraken, Coinbase, Binance.US), updating every few seconds. No account or key.
+- **Efficiency**: can the next day's (or hour's) efficiency be forecast from price, calendar, funding, basis, macro,
+  positioning and order-book data, walk-forward on development data? And does switching a strategy on and off by
+  efficiency help it, and how strong would the forecast need to be? Every run checks itself on synthetic markets
+  first and is counted in the ledger. Gates found here are tested for real by declaring them in a card's experiment
+  (`gates=[...]`), where the gate test reruns them on shuffled data. See [docs/EFFICIENCY.md](docs/EFFICIENCY.md).
 
 Holdouts are deliberately not runnable from the page: they are one-shot, so they need a typed command.
 
@@ -79,13 +93,18 @@ Holdouts are deliberately not runnable from the page: they are one-shot, so they
 | `oql/catalog.py` | Parquet catalog with metadata, licence tags, SHA-256 and quality checks |
 | `oql/sources.py` | FRED, Binance public files, CSV, release calendar, Pi order-book features, Databento front contracts (roll-safe) |
 | `oql/engine.py` | Bar engine: decisions at the close, fills a fraction into the next bar, costs per change, equal-risk sizing |
-| `oql/strategies.py` | Rule library (breakout, moving-average cross, momentum, reversal); add your own per experiment |
+| `oql/strategies.py` | Rule library (breakout, moving-average cross, momentum, reversal, opening-range breakout); add your own per experiment |
+| `oql/gates.py` | Efficiency gates a search can add to any strategy (trailing efficiency, or the efficiency forecast) |
+| `oql/efficiency.py` | The efficiency lab: targets, look-ahead-free features, walk-forward forecasts, gate checks |
 | `oql/search.py` | The safe search loop: fixed rounds, elites survive, every strategy logged |
 | `oql/permute.py` | Joint bar permutation across markets (adapted from neurotrader888's MIT-licensed method) |
 | `oql/gate.py` | The gate and the holdout |
 | `oql/stats.py` | Deflated Sharpe, cost and delay Monte Carlo, long/short split, beta |
 | `oql/board.py` | Cards, stages, enforced moves, reports, the HTML board |
 | `oql/server.py`, `oql/web/` | The `oql serve` dashboard (standard library only) |
+| `oql/live.py`, `oql/web/live.js` | Background jobs streamed to the page; the shared live chart renderer |
+| `oql/projects/` | The ten mini-projects, each with its known-answer checks |
+| `oql/market.py` | Live public exchange data for the Live market tab |
 | `oql/collect.py` | Scheduled, incremental, checksum-verified downloads |
 | `oql/paper.py` | Paper trading: journal, revisions, reconciliation |
 | `oql/agent_tools.py`, `oql/mcp_server.py` | What an AI assistant may do, served over MCP |

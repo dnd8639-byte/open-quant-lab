@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from . import catalog
-from .strategies import RULES
+from .gates import GATES
+from .strategies import ALL_RULES, RULES
 
 
 @dataclass
@@ -39,17 +40,31 @@ class Experiment:
     start: str | None = None
     end: str | None = None
     seed: int = 0
+    gates: list = field(default_factory=lambda: ["none"])   # efficiency gates the search may add: none, er_trailing, er_forecast
+    gate_grid: dict = field(default_factory=dict)     # per-gate settings that replace the defaults in oql.gates.GATES
+    gate_features: list = field(default_factory=lambda: ["price"])   # feature groups for er_forecast (oql.efficiency.GROUPS)
     custom_rules: dict = field(default_factory=dict)
     path: str = ""
 
     def rule_table(self) -> dict:
-        table = {**RULES, **self.custom_rules}
+        table = {**ALL_RULES, **self.custom_rules}
         out = {}
         for r in self.rules:
             if r not in table:
                 raise KeyError(f"unknown rule {r!r}; known: {sorted(table)}")
             fn, grid = table[r]
             out[r] = (fn, self.grid.get(r, grid))
+        return out
+
+    def gate_table(self) -> dict | None:
+        """None when the search has no gates (the default: genomes and results are exactly as before gates existed)."""
+        if list(self.gates) in ([], ["none"]):
+            return None
+        out = {}
+        for g in self.gates:
+            if g != "none" and g not in GATES:
+                raise KeyError(f"unknown gate {g!r}; known: none, {', '.join(GATES)}")
+            out[g] = {} if g == "none" else self.gate_grid.get(g, GATES[g])
         return out
 
 

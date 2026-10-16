@@ -7,9 +7,13 @@
 <style>
 :root{--bg:#f6f6f3;--panel:#ffffff;--ink:#1b2127;--mut:#68717b;--line:#e1e3e6;--grid:#eceef0;
   --acc:#2f5d8c;--acc-soft:rgba(47,93,140,.12);--pass:#1f7a4d;--fail:#b3412f;--warn:#9a6a12;--real:#1b2127;
-  --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948;
+  --seq-lo:#cde2fb;--seq-hi:#104281;--div-neg:#2a78d6;--div-mid:#f0efec;--div-pos:#e34948}
 @media (prefers-color-scheme:dark){:root{--bg:#121518;--panel:#1b1f23;--ink:#e7e9eb;--mut:#9aa3ab;--line:#2c3237;
-  --grid:#23282d;--acc:#7fb0e0;--acc-soft:rgba(127,176,224,.16);--pass:#5cc493;--fail:#ef8a78;--warn:#e0b45c;--real:#e7e9eb}}
+  --grid:#23282d;--acc:#7fb0e0;--acc-soft:rgba(127,176,224,.16);--pass:#5cc493;--fail:#ef8a78;--warn:#e0b45c;--real:#e7e9eb;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;
+  --seq-lo:#1c2a3b;--seq-hi:#86b6ef;--div-neg:#3987e5;--div-mid:#383835;--div-pos:#e66767}}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,sans-serif}
 header{display:flex;align-items:baseline;gap:20px;padding:18px 20px 0;flex-wrap:wrap}
 header h1{font-size:18px;margin:0;font-weight:650} header .sub{color:var(--mut);font-size:13px}
@@ -46,6 +50,18 @@ pre{white-space:pre-wrap;font:12px/1.5 var(--mono);color:var(--ink);background:v
 .chip.public{color:var(--pass);border-color:var(--pass)} .chip.own{color:var(--acc);border-color:var(--acc)}
 svg text{font:11px system-ui,sans-serif;fill:var(--mut)} .bar{height:6px;background:var(--grid);border-radius:3px;overflow:hidden;margin-top:8px}
 .bar>div{height:100%;background:var(--acc);width:0}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px} .charts .wide{grid-column:1/-1}
+@media (max-width:900px){.charts{grid-template-columns:1fr}}
+.chart{margin:0;min-width:0} .ctitle{font-weight:600;font-size:13px;margin-bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--mut);margin-bottom:4px}
+.legend i,.tip i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+svg text.ink{fill:var(--ink);font-weight:500}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;
+  font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-width:240px;z-index:5} .tip .mut{color:var(--mut)}
+.checks{display:flex;flex-direction:column;gap:4px;margin:8px 0} .checkrow{font-size:13px}
+.groups{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px} .groups label{flex-direction:row;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.groups .off{color:var(--mut)}
+.plist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -56,6 +72,9 @@ svg text{font:11px system-ui,sans-serif;fill:var(--mut)} .bar{height:6px;backgro
   <button data-tab="data">Data</button>
   <button data-tab="paper">Paper &amp; collector</button>
   <button data-tab="ledger">Ledger</button>
+  <button data-tab="projects">Projects</button>
+  <button data-tab="market">Live market</button>
+  <button data-tab="efficiency">Efficiency</button>
 </nav>
 <main>
 <!-- BOARD -->
@@ -111,9 +130,51 @@ svg text{font:11px system-ui,sans-serif;fill:var(--mut)} .bar{height:6px;backgro
   <div class="panel"><h2>Data collector</h2><pre id="collect-status">loading…</pre></div>
 </section>
 
+<!-- PROJECTS -->
+<section id="t-projects" class="hide">
+  <p class="note">Ten quant mini-projects, each running live on the lab's data. Charts fill in as the work happens, and each
+    project runs its built-in checks against a known answer before trusting the real result.</p>
+  <div class="plist" id="plist"></div>
+  <div id="pdetail" class="hide"></div>
+</section>
+
+<!-- LIVE MARKET -->
+<section id="t-market" class="hide">
+  <div class="panel"><h2>Live market (public exchange data, no account; updates every few seconds)</h2>
+    <p class="note">The efficiency ratio of the last hour is |net move| ÷ total distance travelled: near 1 the price went one way,
+      near 0 it went back and forth. It is the quantity the efficiency research tries to forecast; here it is measured as it happens.</p>
+    <div class="controls"><label>Exchange<select id="mvenue"></select></label><label>Asset<select id="masset"><option>BTC</option><option>ETH</option></select></label>
+      <button class="go" id="mstart">Start</button><button class="ghost" id="mstop" disabled>Pause</button><span class="note" id="mstate"></span></div>
+    <div id="mout"></div></div>
+</section>
+
+<!-- EFFICIENCY -->
+<section id="t-efficiency" class="hide">
+  <p class="note">Efficiency ratio of a day (or hour) = |net move| ÷ total distance travelled. Trend rules are paid on efficient days and
+    pay costs for nothing on choppy ones. Two questions, both on development data only (the first 70% of each dataset), and every run
+    is counted in the ledger: <b>can the next period's efficiency be forecast</b> from what is known before it starts, and <b>does
+    switching a strategy on and off by efficiency help it</b>. Each run checks itself on synthetic markets with a known answer first.</p>
+  <div class="panel"><h2>1 · Is efficiency predictable?</h2>
+    <p class="note">Walk-forward: each block is predicted by a model fitted only on earlier periods. Minute bars give hourly efficiency,
+      hourly bars give daily efficiency. An opening-range breakout needed a forecast correlation of about 0.3 to be worth trading.</p>
+    <div class="controls"><label>Dataset<select id="eds"></select></label><label>Model<select id="emodel"><option value="ridge">ridge (linear)</option></select></label>
+      <button class="go" id="erun">Run</button><button class="ghost" id="estop" disabled>Stop</button><span class="note" id="estate"></span></div>
+    <div class="groups" id="egroups"></div>
+    <div id="eout"></div></div>
+  <div class="panel"><h2>2 · Do efficiency gates help a strategy?</h2>
+    <p class="note">Every gate setting (trailing efficiency, or the forecast above; top or bottom third or half) is tried on one strategy,
+      then: P&amp;L by forecast third, and how strong a forecast would need to be. This is exploration. A gate is only tested for real
+      when it is declared in a card's experiment, where the gate test reruns it on shuffled data.</p>
+    <div class="controls"><label>Dataset<select id="gds"></select></label><label>Strategy<select id="gstrat"></select></label>
+      <label>Cost per trade<select id="gcost"><option value="1">1 bp</option><option value="2" selected>2 bp</option><option value="5">5 bp</option><option value="10">10 bp</option></select></label>
+      <button class="go" id="grun">Run</button><button class="ghost" id="gstop" disabled>Stop</button><span class="note" id="gstate"></span></div>
+    <div id="gout"></div></div>
+  <div class="panel"><h2>Efficiency explorations so far</h2><div style="overflow-x:auto"><table id="ehist"></table></div></div>
+</section>
+
 <!-- LEDGER -->
 <section id="t-ledger" class="hide">
-  <div class="panel"><h2>Every test ever run, pass or fail</h2><div class="stats" id="lstats"></div><table id="ltable"></table></div>
+  <div class="panel"><h2>Every test ever run, pass or fail</h2><div class="stats" id="lstats"></div><div style="overflow-x:auto"><table id="ltable"></table></div></div>
 </section>
 </main>
 
@@ -174,8 +235,10 @@ function dots(el, trials, {h = 220} = {}) {        // every strategy tried, by r
 // ------------------------------------------------------------------ tabs
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["board", "lab", "data", "paper", "ledger"].forEach(t => $("#t-" + t).classList.toggle("hide", t !== b.dataset.tab));
+  document.querySelectorAll("main > section").forEach(sec => sec.classList.toggle("hide", sec.id !== "t-" + b.dataset.tab));
   if (b.dataset.tab === "data") loadData(); if (b.dataset.tab === "ledger") loadLedger(); if (b.dataset.tab === "paper") loadPaper();
+  if (b.dataset.tab === "projects") OQLLive.loadProjects(); if (b.dataset.tab === "market") OQLLive.initMarket();
+  if (b.dataset.tab === "efficiency") OQLLive.initEfficiency();
 });
 
 // ------------------------------------------------------------------ board
@@ -196,7 +259,7 @@ async function loadBoard() {
         ${ho ? `<span class="badge ${ho.verdict}">holdout ${ho.verdict} · SR ${fmt(ho.holdout_sharpe)}</span>` : ""}</div>`;
     }).join("") || '<p class="empty">empty</p>'}</div>`;
   }).join("");
-  document.querySelectorAll(".card").forEach(el => el.onclick = () => { selected = el.dataset.id; loadBoard(); showCard(selected); });
+  document.querySelectorAll("#board .card").forEach(el => el.onclick = () => { selected = el.dataset.id; loadBoard(); showCard(selected); });
 }
 
 async function showCard(id) {
@@ -313,7 +376,9 @@ async function loadPaper() {
 async function loadLedger() {
   const {ledger} = await api("/api/board");
   const g = ledger.filter(r => r.kind === "gate"), trials = g.reduce((a, r) => a + (+r.n_trials || 0), 0);
-  $("#lstats").innerHTML = [["Tests", ledger.length], ["Passed", ledger.filter(r => r.verdict === "PASS").length], ["Strategies searched", trials]]
+  const tests = ledger.filter(r => r.kind === "gate" || r.kind === "holdout");
+  $("#lstats").innerHTML = [["Tests", tests.length], ["Passed", tests.filter(r => r.verdict === "PASS").length],
+                            ["Explorations", ledger.filter(r => r.kind === "explore").reduce((a, r) => a + (+r.n_trials || 1), 0)], ["Strategies searched", trials]]
     .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
   $("#ltable").innerHTML = `<tr><th>UTC</th><th>Card</th><th>Test</th><th>Verdict</th><th>p</th><th>Sharpe</th><th>Strategies</th></tr>` +
     ledger.slice().reverse().map(r => `<tr><td>${esc(r.utc)}</td><td>${esc(r.card)}</td><td>${esc(r.kind)}</td><td class="${r.verdict}">${esc(r.verdict)}</td>
@@ -322,5 +387,6 @@ async function loadLedger() {
 
 (async () => { await Promise.all([loadBoard(), loadDatasets(), initLab()]); setInterval(loadBoard, 5000); })();
 </script>
+<script src="/static/live.js"></script>
 </body>
 </html>

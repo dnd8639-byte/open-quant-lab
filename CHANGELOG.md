@@ -3,6 +3,42 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.5.0
+- **Efficiency lab** (`oql/efficiency.py`, `oql efficiency study`, the dashboard's Efficiency tab, the assistant's
+  `efficiency_study` tool). Is the next day's (hourly bars) or hour's (minute bars) efficiency ratio predictable?
+  Walk-forward ridge (or boosted trees) on development data only, from price features plus optional calendar,
+  funding, perp-spot basis, VIX and yield slope, CFTC positioning and Pi order-book groups, all joined as of the
+  period start. The order-book data from the micro study's lock date on stays sealed. Each run first checks itself on
+  a synthetic market with planted efficiency regimes and on a random walk, and is counted in the ledger.
+- **Efficiency gates in the search** (`oql/gates.py`). An experiment can declare `gates=["none", "er_trailing",
+  "er_forecast"]`; the search may then switch any strategy on only in the top (or bottom) third or half of trailing
+  efficiency or of the efficiency forecast. Gates are computed from the bars inside the search, so the gate test
+  reruns them on every shuffled copy. Switching pays costs. Paper trading computes the gate the same way, with the
+  catalog's history in front of the live journal. Experiments without `gates` are unchanged.
+- **Gate check** (`oql efficiency gates`, the Efficiency tab): all 21 gate settings on one strategy, P&L by forecast
+  third, and a simulation of how strong a forecast would need to be. Counted in the ledger as 21 explorations.
+- New rule `orb` (opening-range breakout on intraday bars), available by name; not in the default search.
+- Assistant tools: `explore` and `permutation_check` take an optional gate; `write_experiment` takes `gates` and
+  `gate_features` and counts gate settings in the search size; new `efficiency_study`.
+- Ledger counts (command line, dashboard, assistant) add up the settings a row stands for, so a gate check counts 21.
+- Charts: ranked horizontal bars for long category names.
+
+## 0.4.0
+- **Live dashboard.** `oql serve` can run any computation in the background and stream its results to the page as they
+  arrive (`oql/live.py`, Server-Sent Events); charts redraw as the work happens, with hover readouts and a validated
+  colour palette for light and dark mode (`oql/web/live.js`).
+- **Projects tab.** The ten quant mini-projects (tail index, intraday seasonality, overfitting detector, momentum
+  crashes, factor neutrality, American put, autodiff Greeks, implied distribution, Hawkes trades, news diffusion) run
+  live on the lab's catalog data (`oql/projects/`). Each runs its known-answer checks first and shows them passing or
+  failing; the four projects with published real-data results reproduce them.
+- **Live market tab.** Public exchange data (Kraken, Coinbase, Binance.US; no account) polled by the server: price,
+  the rolling one-hour efficiency ratio, realized volatility and the bid-ask spread, updating on their own
+  (`oql/market.py`).
+- New data commands: `oql data pull-french` (Fama-French factor tables) and `oql data import-projects DIR` (the
+  projects' SPY option chain, licensed and kept local, and a day of Binance.US trades).
+- The ledger tab counts tests (gate and holdout runs) separately from explorations.
+- Packaging includes the `oql.projects` package and the page script, so a regular `pip install` works.
+
 ## 0.3.4
 Found in the first dry run with an AI assistant connected over MCP:
 - `write_experiment` and `explore` now say that every strategy trades all of an experiment's datasets together as one

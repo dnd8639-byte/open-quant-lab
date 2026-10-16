@@ -103,6 +103,47 @@ def binance(symbol: str, interval: str = "1h", start: str = "2018-01", end: str 
                          notes=("missing months: " + ", ".join(missing)) if missing else "")
 
 
+# ---------------------------------------------------------------------------------------------- Kenneth French library
+FRENCH = ["F-F_Research_Data_Factors", "F-F_Momentum_Factor", "F-F_Research_Data_5_Factors_2x3"]
+FRENCH_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/{name}_CSV.zip"
+
+
+def french(name: str, directory: str | None = None, getter=fetch):
+    """A monthly factor table from the Kenneth French Data Library (free), as decimals. From a local zip in
+    `directory` if given, otherwise downloaded."""
+    from .projects._util import parse_french_zip
+    if directory:
+        with open(os.path.join(os.path.expanduser(directory), f"{name}_CSV.zip"), "rb") as f:
+            blob = f.read()
+    else:
+        blob = getter(FRENCH_URL.format(name=name))
+    df = parse_french_zip(blob)
+    return catalog.write(f"french/{name}/1mo", df, license="public", origin=FRENCH_URL.format(name=name), kind="table",
+                         notes="Kenneth R. French Data Library, monthly, percent converted to decimals; index = month end")
+
+
+def import_projects(directory: str) -> list:
+    """The mini-projects' own data files: a SPY option chain (Yahoo Finance: licensed, stays local) and a day of
+    Binance.US BTC trades (public)."""
+    d = os.path.expanduser(directory)
+    out = []
+    p = os.path.join(d, "spy_chain.csv")
+    if os.path.exists(p):
+        ch = pd.read_csv(p)
+        ch.index = pd.DatetimeIndex(pd.to_datetime(ch["downloaded"].str.replace(" UTC", ""), utc=True), name="ts")
+        out.append(catalog.write("options/SPY/chain", ch, license="licensed", origin=os.path.abspath(p), kind="table",
+                                 notes="SPY option chain snapshot via Yahoo Finance (yfinance); not for redistribution"))
+    p = os.path.join(d, "btc_trades.csv")
+    if os.path.exists(p):
+        tr = pd.read_csv(p)
+        tr.index = pd.DatetimeIndex(pd.to_datetime(tr.pop("timestamp"), unit="ms", utc=True), name="ts")
+        out.append(catalog.write("binanceus/BTCUSDT/trades", tr, license="public", origin=os.path.abspath(p), kind="table",
+                                 notes="Binance.US BTC/USDT public trades (one day)"))
+    if not out:
+        raise FileNotFoundError(f"no spy_chain.csv or btc_trades.csv in {d}")
+    return out
+
+
 # ---------------------------------------------------------------------------------------------- local files
 def csv_bars(path: str, name: str, freq: str, source: str = "csv", license: str = "own"):
     df = pd.read_csv(path)

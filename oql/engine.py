@@ -10,7 +10,7 @@ many markets is not dominated by the wildest one. The portfolio return is the av
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -37,6 +37,7 @@ class Prepared:
     index: dict
     arrays: dict
     ppy: float
+    frames: dict = field(default_factory=dict)          # the bars themselves, for rules and gates that need more than closes
 
 
 def prepare(book: dict, cost_bps: dict, warmup: int = 250, score_from=None, score_to=None, sd_window: int = 20,
@@ -62,7 +63,7 @@ def prepare(book: dict, cost_bps: dict, warmup: int = 250, score_from=None, scor
         arrays[name] = dict(close=c, ret=ret, intra=intra, gap=ret - intra, size=size, win=win,
                             cost=cost_bps.get(name, cost_bps.get("default", 1.0)) / 1e4)
         index[name] = df.index
-    return Prepared(list(book), index, arrays, float(ppy))
+    return Prepared(list(book), index, arrays, float(ppy), dict(book))
 
 
 def market_returns(a: dict, signal: np.ndarray, cost_mult: float = 1.0, delay: float = 1 / 23):

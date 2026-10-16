@@ -25,7 +25,8 @@ from .engine import prepare
 from .experiment import Experiment, load as load_exp, split_date
 from .permute import permute_book
 from .search import Scorer, search, sharpe
-from .strategies import RULES, valid
+from .gates import GATES, validate as validate_gate
+from .strategies import ALL_RULES, RULES, valid
 
 EDITABLE = ("idea", "research")
 MAX_PERM = 199
@@ -83,12 +84,17 @@ def lab_overview() -> dict:
                        "gate": c["results"].get("gate", {}).get("verdict"), "review": c.get("review", {}).get("summary")}
                       for c in bd["cards"]],
             "tests_in_ledger": sum(r["kind"] in ("gate", "holdout") for r in rows),
-            "explorations_in_ledger": sum(r["kind"] == "explore" for r in rows),
+            "explorations_in_ledger": sum(int(r["n_trials"] or 1) for r in rows if r["kind"] == "explore"),
             "datasets": [m.id for m in catalog.list_all()],
-            "rules": {k: g for k, (_, g) in RULES.items()},
+            "rules": {k: g for k, (_, g) in ALL_RULES.items()},
+            "rules_note": "orb (opening-range breakout) needs intraday bars and is not in the default search; name it in rules to use it",
+            "gates": {"none": "always on", **{k: g for k, g in GATES.items()}},
+            "gates_note": ("An efficiency gate switches a strategy on only when the market is (expected to be) trending ('high') or "
+                           "choppy ('low'). er_trailing uses the last `lookback` bars; er_forecast uses the efficiency lab's walk-forward "
+                           "forecast. Declare gates in write_experiment to let the search use them; the gate test reruns them on shuffled data."),
             "stages": board.STAGES + ["archive"],
             "agent_may": ["propose_idea", "start_research", "write_preregistration", "write_experiment", "explore",
-                          "permutation_check", "request_review"],
+                          "permutation_check", "efficiency_study", "request_review"],
             "human_only": ["freeze", "gate", "holdout", "paper deploy"]}
 
 
@@ -202,13 +208,14 @@ EXPERIMENT = Experiment(
     grid={grid!r},
     cost_bps={cost!r},
     alpha={alpha!r},
-    n_perm={n_perm!r},
+    n_perm={n_perm!r},{gates}
 )
 '''
 
 
 def write_experiment(card_id: str, datasets: list, rules: list | None = None, grid: dict | None = None,
-                     cost_bps: dict | None = None, alpha: float = 0.05, n_perm: int = 99) -> dict:
+                     cost_bps: dict | None = None, alpha: float = 0.05, n_perm: int = 99, gates: list | None = None,
+                     gate_features: list | None = None) -> dict:
     c = _card(card_id)
     if c["stage"] not in EDITABLE:
         raise AgentError(f"card is '{c['stage']}': experiments can only be edited before the freeze")
@@ -216,20 +223,30 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
     for ds in datasets:
         if catalog.meta(ds).kind != "bars":
             raise AgentError(f"{ds} is a table, not price bars")
-    bad = [r for r in rules if r not in RULES]
+    bad = [r for r in rules if r not in ALL_RULES]
     if bad:
-        raise AgentError(f"unknown rules {bad}; library rules: {sorted(RULES)} (custom code rules need a person)")
+        raise AgentError(f"unknown rules {bad}; library rules: {sorted(ALL_RULES)} (custom code rules need a person)")
     grid = {r: {k: [int(v) for v in vals] for k, vals in g.items()} for r, g in (grid or {}).items()}
     for r, g in grid.items():
-        if r not in rules or set(g) != set(RULES[r][1]):
-            raise AgentError(f"grid for {r} must give exactly the parameters {sorted(RULES[r][1])}")
+        if r not in rules or set(g) != set(ALL_RULES[r][1]):
+            raise AgentError(f"grid for {r} must give exactly the parameters {sorted(ALL_RULES[r][1])}")
+    from .efficiency import GROUPS
+    gates = list(gates or ["none"])
+    if [g for g in gates if g != "none" and g not in GATES]:
+        raise AgentError(f"gates must come from: none, {', '.join(GATES)}")
+    gate_features = list(gate_features or ["price"])
+    if [g for g in gate_features if g not in GROUPS]:
+        raise AgentError(f"gate_features must come from: {', '.join(GROUPS)}")
+    if "price" not in gate_features:
+        gate_features = ["price"] + gate_features
+    gate_text = "" if gates == ["none"] else f"\n    gates={gates!r},\n    gate_features={gate_features!r},"
     cost_bps = {k: float(v) for k, v in (cost_bps or {"default": 1.0}).items()}
     if not 0.001 <= alpha <= 0.1:
         raise AgentError("alpha must be between 0.001 and 0.1")
     if not 39 <= int(n_perm) <= 999:
         raise AgentError("n_perm must be between 39 and 999 (fewer cannot reach p < 0.05)")
     text = EXPERIMENT.format(id=c["id"], title=c["title"], datasets=list(datasets), rules=list(rules), grid=grid,
-                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm),
+                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm), gates=gate_text,
                              agent=" by an AI assistant" if c.get("author") == "agent" else "")
     path = os.path.join(board.card_dir(c), "experiment.py")
     with open(path, "w") as f:
@@ -251,7 +268,9 @@ def _space_size(exp: Experiment) -> int:
     for r, (_, g) in exp.rule_table().items():
         for combo in itertools.product(*g.values()):
             n += valid(r, dict(zip(g.keys(), combo)))
-    return n * (1 if exp.both_sides else 3)
+    gates = exp.gate_table()
+    k = 1 if gates is None else sum(1 if not g else int(np.prod([len(v) for v in g.values()])) for g in gates.values())
+    return n * k * (1 if exp.both_sides else 3)
 
 
 # ---------------------------------------------------------------------------------------------- explore (development data only)
@@ -268,24 +287,43 @@ def _card_costs(c, ds) -> tuple[float, float]:
     return 1.0, 1 / 23
 
 
-def _dev_scorer(book, ds, warmup, cost_bps=1.0):
+def _dev_scorer(book, ds, warmup, cost_bps=1.0, gate_features=("price",)):
     exp = Experiment(datasets=[ds])
-    return Scorer(prepare(book, {"default": cost_bps}, warmup=warmup), exp.rule_table(), 0.0), exp
+    return Scorer(prepare(book, {"default": cost_bps}, warmup=warmup), exp.rule_table(), 0.0, gate_features), exp
 
 
-def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "both", actor: str = "agent") -> dict:
+def _card_gate_features(c) -> list:
+    path = os.path.join(board.card_dir(c), "experiment.py")
+    try:
+        return list(load_exp(path).gate_features) if os.path.exists(path) else ["price"]
+    except Exception:
+        return ["price"]
+
+
+def _genome(rule, params, side, gate):
+    if rule not in ALL_RULES or not valid(rule, params) or set(params) != set(ALL_RULES[rule][1]):
+        raise AgentError(f"{rule} needs parameters {sorted(ALL_RULES[rule][1]) if rule in ALL_RULES else '?'} (fast < slow for ma_cross)")
+    g = {"rule": rule, "params": {k: int(v) for k, v in params.items()}, "side": side}
+    if gate and gate.get("kind", "none") != "none":
+        try:
+            g["gate"] = validate_gate(gate)
+        except ValueError as e:
+            raise AgentError(str(e))
+    return g
+
+
+def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "both", gate: dict | None = None,
+            actor: str = "agent") -> dict:
     """Score ONE strategy on the development part of one dataset. Logged and counted."""
     c = _card(card_id)
     if c["stage"] != "research":
         raise AgentError(f"exploration happens in 'research'; this card is in '{c['stage']}'")
-    if rule not in RULES or not valid(rule, params) or set(params) != set(RULES[rule][1]):
-        raise AgentError(f"{rule} needs parameters {sorted(RULES[rule][1]) if rule in RULES else '?'} (fast < slow for ma_cross)")
+    g = _genome(rule, params, side, gate)
     cut = dev_cutoff(c, dataset)
     dev = catalog.read(dataset)
     dev = dev[dev.index < cut]
-    g = {"rule": rule, "params": {k: int(v) for k, v in params.items()}, "side": side}
     cost, delay = _card_costs(c, dataset)
-    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)), cost)
+    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)), cost, _card_gate_features(c))
     port, _, trades = sc.returns(g, delay=delay)
     s = sharpe(port.to_numpy(), sc.prep.ppy)
     entry = dict(actor=actor, kind="explore", dataset=dataset, genome=json.dumps(g, sort_keys=True), sharpe=s, trades=trades,
@@ -293,7 +331,12 @@ def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "bo
     _log_exploration(c, entry)
     n = len(explorations(c))
     years = len(port) / sc.prep.ppy
+    on = None
+    if "gate" in g:
+        from .gates import mask
+        on = float(np.nanmean(mask(g["gate"], dev, dataset, sc._gate_cache, sc.gate_features)))
     return {"sharpe_dev": s, "cost_bps": cost, "direction_changes": trades,
+            **({"gate": g["gate"], "share_of_time_gate_is_on": round(on, 3)} if on is not None else {}),
             "direction_changes_per_year": round(trades / years, 1) if years > 0 else None,
             "dev_data": f"{str(dev.index[0])[:10]} to {str(dev.index[-1])[:10]}",
             "explorations_on_this_card": n,
@@ -313,24 +356,23 @@ def _card_datasets(c) -> list:
 
 
 def permutation_check(card_id: str, dataset: str, rule: str, params: dict, side: str = "both", n: int = 99,
-                      actor: str = "agent") -> dict:
+                      gate: dict | None = None, actor: str = "agent") -> dict:
     """A quick permutation test of ONE strategy on development data. Exploratory: it is logged and does not
     replace the gate, which tests the whole declared search."""
     n = int(min(max(n, 19), MAX_PERM))
     c = _card(card_id)
     if c["stage"] != "research":
         raise AgentError(f"exploration happens in 'research'; this card is in '{c['stage']}'")
-    if rule not in RULES or not valid(rule, params) or set(params) != set(RULES[rule][1]):
-        raise AgentError(f"{rule} needs parameters {sorted(RULES[rule][1]) if rule in RULES else '?'}")
+    g = _genome(rule, params, side, gate)
     cut = dev_cutoff(c, dataset)
     dev = catalog.read(dataset)
     dev = dev[dev.index < cut]
-    g = {"rule": rule, "params": {k: int(v) for k, v in params.items()}, "side": side}
     warm = min(250, max(20, len(dev) // 10))
     cost, delay = _card_costs(c, dataset)
+    feats = _card_gate_features(c)
 
     def one(book):
-        sc, exp = _dev_scorer(book, dataset, warm, cost)
+        sc, exp = _dev_scorer(book, dataset, warm, cost, feats)
         return sharpe(sc.returns(g, delay=delay)[0].to_numpy(), sc.prep.ppy)
     real = one({dataset: dev})
     null = np.array([one(permute_book({dataset: dev}, 7000 + k)) for k in range(n)])
@@ -340,6 +382,21 @@ def permutation_check(card_id: str, dataset: str, rule: str, params: dict, side:
     return {"sharpe_dev": real, "cost_bps": cost, "p_single_strategy": p, "permutations": n, "null_median": float(np.median(null)),
             "explorations_on_this_card": len(explorations(c)),
             "warning": "p for ONE strategy you chose after looking is optimistic; only the gate's whole-search test counts."}
+
+
+def efficiency_study(dataset: str, groups: list | None = None) -> dict:
+    """Can the next period's efficiency be forecast? Walk-forward ridge on the dataset's development data. Logged."""
+    from . import efficiency as E
+    groups = ["price"] + [g for g in (groups or []) if g in E.GROUPS and g != "price"]
+    if catalog.meta(dataset).kind != "bars":
+        raise AgentError(f"{dataset} is a table, not price bars")
+    s = E.study(dataset, groups, label=None)
+    return {"dataset": dataset, "horizon": s["horizon"], "groups": groups, "features": s["features"], "notes": s["notes"],
+            "oos_r2": round(s["r2"], 4), "correlation": round(s["corr"], 3), "high_minus_low_third_er": round(s["spread"], 4),
+            "t_stat": round(s["t_spread"], 2), "own_past_efficiency_only": {"oos_r2": round(s["own_r2"], 4), "correlation": round(s["own_corr"], 3)},
+            "development_data_ends": s["dev_end"],
+            "context": f"An opening-range breakout needed a correlation of about {E.NEEDED_CORR}; momentum rules can gain from less. "
+                       "Logged in the ledger as an exploration. Whether a gate helps a strategy is only settled by a card's gate test."}
 
 
 def request_review(card_id: str, summary: str) -> dict:
@@ -365,6 +422,11 @@ S = lambda props, req: {"type": "object", "properties": props, "required": req, 
 STR, INT, NUM = {"type": "string"}, {"type": "integer"}, {"type": "number"}
 PARAMS = {"type": "object", "description": "parameter name -> integer, e.g. {\"lookback\": 60}", "additionalProperties": {"type": "integer"}}
 SIDE = {"type": "string", "enum": ["both", "long", "short"]}
+GATE = {"type": "object", "description": "optional efficiency gate, e.g. {\"kind\": \"er_forecast\", \"side\": \"high\", \"share\": 50} or "
+        "{\"kind\": \"er_trailing\", \"lookback\": 24, \"side\": \"high\", \"share\": 33}; share = percent of the time it may be on",
+        "properties": {"kind": {"type": "string", "enum": ["none", *GATES]}, "lookback": INT, "side": {"type": "string", "enum": ["high", "low"]},
+                       "share": INT}, "required": ["kind"], "additionalProperties": False}
+RULE = {"type": "string", "enum": list(ALL_RULES)}
 
 TOOLS = {
     "lab_overview": (lab_overview, "Cards by stage, ledger counts, datasets, strategy rules, and what the agent may and may not do. Call this first.", S({}, [])),
@@ -381,17 +443,25 @@ TOOLS = {
                          "Every strategy trades ALL the listed datasets together as one equal-risk portfolio, so the search size is the number of "
                          "rule and parameter combinations, not that number times the datasets.",
                          S({"card_id": STR, "datasets": {"type": "array", "items": STR},
-                            "rules": {"type": "array", "items": {"type": "string", "enum": list(RULES)}},
+                            "rules": {"type": "array", "items": RULE},
                             "grid": {"type": "object", "description": "rule -> {param -> [integers]}"},
-                            "cost_bps": {"type": "object", "additionalProperties": NUM}, "alpha": NUM, "n_perm": INT},
+                            "cost_bps": {"type": "object", "additionalProperties": NUM}, "alpha": NUM, "n_perm": INT,
+                            "gates": {"type": "array", "items": {"type": "string", "enum": ["none", *GATES]},
+                                      "description": "efficiency gates the search may add to strategies (default ['none'] = no gates). Each gate setting multiplies the search size."},
+                            "gate_features": {"type": "array", "items": {"type": "string"},
+                                              "description": "feature groups for er_forecast: price (always), calendar, funding, basis, macro, positioning, orderbook"}},
                            ["card_id", "datasets"])),
     "explore": (explore, "Score one strategy on ONE dataset's DEVELOPMENT data only (never the holdout), at the card's declared costs. Logged and "
                 "counted against the card. The gate scores strategies on all the experiment's datasets together, so this is indirect evidence when there are several.",
-                S({"card_id": STR, "dataset": STR, "rule": {"type": "string", "enum": list(RULES)}, "params": PARAMS, "side": SIDE},
+                S({"card_id": STR, "dataset": STR, "rule": RULE, "params": PARAMS, "side": SIDE, "gate": GATE},
                   ["card_id", "dataset", "rule", "params"])),
     "permutation_check": (permutation_check, "Exploratory permutation test of one strategy on development data (19-199 shuffles). Logged; does not replace the gate.",
-                          S({"card_id": STR, "dataset": STR, "rule": {"type": "string", "enum": list(RULES)}, "params": PARAMS, "side": SIDE, "n": INT},
+                          S({"card_id": STR, "dataset": STR, "rule": RULE, "params": PARAMS, "side": SIDE, "n": INT, "gate": GATE},
                             ["card_id", "dataset", "rule", "params"])),
+    "efficiency_study": (efficiency_study, "Is the next period's efficiency (|net move| / distance travelled) predictable on this dataset? Walk-forward "
+                         "forecast on development data from price features plus optional groups (calendar, funding, basis, macro, positioning, "
+                         "orderbook). Returns out-of-sample R², correlation and the realized-efficiency spread between predicted thirds. Logged.",
+                         S({"dataset": STR, "groups": {"type": "array", "items": {"type": "string"}}}, ["dataset"])),
     "request_review": (request_review, "Hand a finished research card to a person, with a summary. Only a person can freeze it and run the gate.",
                        S({"card_id": STR, "summary": STR}, ["card_id", "summary"])),
 }

@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import numpy as np
 
-from . import board, catalog, ledger
+from . import board, catalog, ledger, live
 from .engine import prepare
 from .experiment import Experiment
 from .permute import permute_book
@@ -27,6 +27,7 @@ from .search import Scorer, search, sharpe
 from .strategies import RULES, valid
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+STATIC = {"live.js": "text/javascript; charset=utf-8"}
 _dev_cache: dict = {}
 _lock = threading.Lock()
 _running: dict = {}                                      # card id -> subprocess
@@ -132,6 +133,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _stream(self, run):
+        """Server-Sent Events: keep the response open and write events as they happen."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def write(text):
+            self.wfile.write(text.encode()); self.wfile.flush()
+        try:
+            run(write)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass                                             # the browser tab went away
+
+    def _body(self) -> dict:
+        n = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(n) or b"{}") if n else {}
+
     def do_GET(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -139,6 +159,35 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/", "/index.html"):
                 with open(os.path.join(WEB, "index.html"), "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8")
+            if u.path.startswith("/static/"):
+                name = os.path.basename(u.path)
+                if name not in STATIC:
+                    return self._send(404, {"error": "not found"})
+                with open(os.path.join(WEB, name), "rb") as f:
+                    return self._send(200, f.read(), STATIC[name])
+            if u.path == "/api/projects":
+                from . import projects
+                return self._send(200, projects.listing())
+            if u.path.startswith("/api/jobs/") and u.path.endswith("/stream"):
+                job = live.get(u.path.split("/")[3])
+                return self._stream(lambda w: live.sse(w, job))
+            if u.path == "/api/efficiency":
+                from . import efficiency as E
+                bars_ = [m.id for m in catalog.list_all() if m.kind == "bars" and m.id.rsplit("/", 1)[-1] in ("1m", "1h", "1d")]
+                ds = q.get("dataset") or next((d for d in bars_ if d.endswith("BTCUSDT/1h")), bars_[0] if bars_ else "")
+                av = E.availability(ds) if ds else {}
+                return self._send(200, {"datasets": bars_, "dataset": ds, "trees": E.trees_available(), "needed_corr": E.NEEDED_CORR,
+                                        "groups": [{"id": g, "label": lab, "ok": av.get(g, [False, ""])[0], "note": av.get(g, [False, ""])[1]}
+                                                   for g, lab in E.GROUPS.items()],
+                                        "strategies": E.strategy_choices(),
+                                        "gate_datasets": [d for d in bars_ if not d.endswith("/1m")],
+                                        "history": E.history()[:40]})
+            if u.path == "/api/market/venues":
+                from . import market
+                return self._send(200, {k: v["label"] for k, v in market.VENUES.items()})
+            if u.path == "/api/market/stream":
+                from . import market
+                return self._stream(lambda w: market.sse(w, q.get("venue", "kraken"), q.get("asset", "BTC")))
             if u.path == "/api/board":
                 return self._send(200, {"board": board.load(), "ledger": ledger.rows(board.lab_dir()),
                                         "running": [k for k, p in _running.items() if p.poll() is None]})
@@ -183,6 +232,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path.startswith("/api/gate/"):
                 return self._send(200, _start_gate(unquote(u.path.split("/")[3])))
+            if u.path == "/api/jobs":
+                from . import projects
+                b = self._body()
+                pid = b.get("project", "")
+                if pid in ("efficiency", "gatecheck"):              # the Efficiency tab's two jobs
+                    from . import efficiency as E
+                    fn = E.run if pid == "efficiency" else E.gate_check
+                    job = live.start(pid, b.get("params") or {}, fn)
+                    return self._send(200, {"id": job.id})
+                projects.module(pid)                                # unknown project -> KeyError -> 400
+                job = live.start(pid, b.get("params") or {}, lambda p, emit, stop, pid=pid: projects.run(pid, p, emit, stop))
+                return self._send(200, {"id": job.id})
+            if u.path.startswith("/api/jobs/") and u.path.endswith("/stop"):
+                live.get(u.path.split("/")[3]).stop.set()
+                return self._send(200, {"stopping": True})
             return self._send(404, {"error": "not found"})
         except (board.BoardError, KeyError, ValueError) as e:
             return self._send(400, {"error": str(e)})
@@ -191,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(port: int = 8765, open_browser: bool = True):
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    srv.daemon_threads = True                                # open live streams never keep the server alive
     url = f"http://127.0.0.1:{port}/"
     print(f"Open Quant Lab dashboard: {url}   (lab: {board.lab_dir()}; Control + C stops it)", flush=True)
     if open_browser:

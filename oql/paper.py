@@ -28,7 +28,7 @@ from . import board, catalog
 from .engine import bars_per_year, market_returns, prepare
 from .experiment import load as load_exp
 from .search import sharpe
-from .strategies import signal
+from .strategies import positions
 
 TF = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D"}
 SCHEMA = """
@@ -123,6 +123,21 @@ def deployments(lab=None) -> list[dict]:
     return out
 
 
+def _decide(rules, bars: pd.DataFrame, dep: dict, ds: str, exp) -> np.ndarray:
+    """The backtest's decisions on these bars. An efficiency gate needs a long history (its forecast is refitted on
+    years of data), so for a gated strategy the catalog's bars before the journal are put in front first."""
+    g = dep["finalist"]
+    frame = bars
+    if (g.get("gate") or {}).get("kind", "none") != "none":
+        try:
+            hist = catalog.read(ds)
+            hist = hist[hist.index < bars.index[0]][["open", "high", "low", "close", "volume"]]
+            frame = pd.concat([hist, bars[["open", "high", "low", "close", "volume"]]])
+        except KeyError:
+            pass
+    return positions(rules, frame, g, ds, {}, getattr(exp, "gate_features", ["price"]))[-len(bars):]
+
+
 def _journal_bars(db, ds) -> pd.DataFrame:
     df = pd.read_sql_query("SELECT ts, open, high, low, close, volume FROM bars WHERE ds=? ORDER BY ts", db, params=(ds,))
     df.index = pd.to_datetime(df.pop("ts"), unit="ms", utc=True)
@@ -158,7 +173,7 @@ def step(feed=None, lab=None, now=None, verbose=True) -> list[str]:
             bars = _journal_bars(db, ds)
             if len(bars) < dep["warmup"]:
                 msgs.append(f"{dep['card']} {ds}: {len(bars)} bars, warming up (need {dep['warmup']})"); continue
-            sig = signal(rules, bars["close"].to_numpy(float), dep["finalist"])
+            sig = _decide(rules, bars, dep, ds, exp)
             prep = prepare({ds: bars}, dep["cost_bps"], warmup=0, ppy=dep["ppy"])
             size = prep.arrays[ds]["size"]
             decided = 0
@@ -234,7 +249,7 @@ def reconcile(cid: str, lab=None) -> dict:
         dec.index = pd.to_datetime(dec.pop("ts"), unit="ms", utc=True)
         # 1. replay: same bars + same code -> same decisions
         if len(bars) and len(dec):
-            replay = pd.Series(signal(rules, bars["close"].to_numpy(float), dep["finalist"]), index=bars.index).reindex(dec.index)
+            replay = pd.Series(_decide(rules, bars, dep, ds, exp), index=bars.index).reindex(dec.index)
             mism = int((replay.to_numpy() != dec["signal"].to_numpy()).sum())
             m["replay"] = {"decisions": len(dec), "mismatches": mism,
                            "note": "decisions differ from a replay; usually an exchange revised a bar after it was used"
@@ -251,7 +266,8 @@ def reconcile(cid: str, lab=None) -> dict:
             if ds in paper and len(j):
                 pnl, _, ppy, first = paper[ds]
                 prep = prepare({ds: cat}, dep["cost_bps"], warmup=0, score_from=first, ppy=dep["ppy"])
-                bt, _ = market_returns(prep.arrays[ds], signal(rules, cat["close"].to_numpy(float), dep["finalist"]), delay=dep["delay"])
+                bt, _ = market_returns(prep.arrays[ds], positions(rules, cat, dep["finalist"], ds, {}, getattr(exp, "gate_features", ["price"])),
+                                       delay=dep["delay"])
                 bt = pd.Series(bt, index=cat.index).dropna()
                 both = pd.concat([pnl.rename("paper"), bt.rename("backtest")], axis=1, join="inner")
                 if len(both) > 2:

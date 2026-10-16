@@ -10,8 +10,9 @@ of tools and nothing else.
 | Propose an idea card (a mechanism is required) | Run the gate |
 | Write the pre-registration (the pass rule is fixed text) | Run the one-shot holdout |
 | Declare the experiment from structured fields (no code) | Deploy paper trading |
-| Explore one strategy at a time on development data | Archive or revise cards |
+| Explore one strategy at a time on development data, with or without an efficiency gate | Archive or revise cards |
 | Run a quick exploratory permutation check | |
+| Run an efficiency study (is efficiency predictable on this market?) | |
 | Ask for review with a summary | |
 
 **Why it is built this way.** An AI can try strategies far faster than a person, which makes overfitting faster
@@ -57,7 +58,7 @@ After changing the lab's code, run the same `pip install` again to update the as
 ```
 
 **3. Quit Claude completely and reopen it.** In a new chat, + then Connectors then Manage connectors should list
-`open-quant-lab` with 11 tools. Then try: *"Look at my lab. Propose one idea with a clear mechanism that the data could
+`open-quant-lab` with 12 tools. Then try: *"Look at my lab. Propose one idea with a clear mechanism that the data could
 test, set up the experiment, explore at most five strategies, and ask me for review."*
 
 When it asks for review, the card shows "AI asks for review" on the dashboard. Read its pre-registration, then
