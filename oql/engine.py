@@ -40,10 +40,31 @@ class Prepared:
     frames: dict = field(default_factory=dict)          # the bars themselves, for rules and gates that need more than closes
 
 
+def band_sizes(size: np.ndarray, band: float) -> np.ndarray:
+    """A no-trade band on position size: keep the current size until the target (risk / volatility) has moved more
+    than `band` away from it (in ratio terms), then jump to the target. The strategy stops paying to resize every bar
+    while staying within the band of its risk target. band = 0 leaves sizes unchanged. The result depends on the
+    history it starts from, so paper trading puts the catalog's history in front of the live bars (oql.paper)."""
+    if not band:
+        return size
+    lim = np.log1p(band)
+    out = np.array(size, dtype=float, copy=True)
+    kept = np.nan
+    for i, v in enumerate(size):
+        if not (v > 0):                                     # no estimate yet, or flat: nothing to hold
+            kept = np.nan if not np.isfinite(v) else 0.0
+            out[i] = v
+            continue
+        if not (kept > 0) or abs(np.log(v / kept)) > lim:
+            kept = v
+        out[i] = kept
+    return out
+
+
 def prepare(book: dict, cost_bps: dict, warmup: int = 250, score_from=None, score_to=None, sd_window: int = 20,
-            ppy: float | None = None) -> Prepared:
+            ppy: float | None = None, band: float = 0.0) -> Prepared:
     """`ppy` (bars per year) is measured from the data unless given; paper trading passes the backtest's value so
-    a short live sample sizes positions exactly as the backtest did."""
+    a short live sample sizes positions exactly as the backtest did. `band` > 0 resizes only in steps (band_sizes)."""
     arrays, index = {}, {}
     ppy = ppy or np.median([bars_per_year(df.index) for df in book.values()])
     per_bar = TARGET_ANNUAL_VOL / np.sqrt(ppy)
@@ -53,7 +74,7 @@ def prepare(book: dict, cost_bps: dict, warmup: int = 250, score_from=None, scor
         ret = np.diff(lc, prepend=lc[0])
         intra = np.log(df["close"] / df["open"]).to_numpy(float)
         sd = pd.Series(ret).rolling(sd_window).std().to_numpy()
-        size = np.clip(per_bar / sd, 0, MAX_LEVERAGE)
+        size = band_sizes(np.clip(per_bar / sd, 0, MAX_LEVERAGE), band)
         win = np.zeros(len(df), bool)
         win[warmup:] = True
         if score_from is not None:

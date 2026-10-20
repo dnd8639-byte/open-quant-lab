@@ -3,6 +3,15 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.5.2
+- **Rebalance band** (opt-in, `Experiment(rebalance_band=0.25)`; `write_experiment(rebalance_band=...)` for the
+  assistant; "Resizing" in the gate check). A position keeps its size until the volatility-based target has moved more
+  than the band away, then jumps to the target, so a strategy stops paying to resize every bar while staying within
+  the band of its risk target. Paper trading puts the catalog's history in front of the live bars so its sizes match
+  the backtest's. On synthetic hourly data a 25% band cut the cost bill of a slow rule (250-hour momentum) by about
+  30% and of a fast one (20-hour) by about 8%: for fast rules most of the cost is direction changes, not resizing.
+  Experiments without it are unchanged.
+
 ## 0.5.1
 - The gate report counts efficiency studies and gate checks on the card's datasets made before its freeze
   ("Efficiency-lab explorations on these datasets before the freeze"). They shape which ideas get proposed, so they

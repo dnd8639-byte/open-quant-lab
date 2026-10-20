@@ -29,7 +29,8 @@ from .stats import cost_monte_carlo, deflated_sharpe, side_and_beta
 
 def _scorer(book, exp, **kw):
     costs = {"default": exp.cost_bps.get("default", 1.0), **{k: v for k, v in exp.cost_bps.items()}}
-    return Scorer(prepare(book, costs, warmup=exp.warmup, **kw), exp.rule_table(), exp.min_trades_per_year,
+    return Scorer(prepare(book, costs, warmup=exp.warmup, band=getattr(exp, "rebalance_band", 0.0), **kw),
+                  exp.rule_table(), exp.min_trades_per_year,
                   getattr(exp, "gate_features", ["price"]))
 
 

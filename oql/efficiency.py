@@ -564,10 +564,11 @@ def gate_check(p, emit, stop):
     from .strategies import ALL_RULES
     ds, g0 = p["dataset"], parse_strategy(p["strategy"])
     cost = float(p.get("cost_bps", 2))
+    band = float(p.get("band", 0.0))
     rules = {g0["rule"]: ALL_RULES[g0["rule"]]}
 
     def scorer(b):
-        return Scorer(prepare(b, {"default": cost}, warmup=min(250, len(next(iter(b.values()))) // 10)), rules, 0.0)
+        return Scorer(prepare(b, {"default": cost}, warmup=min(250, len(next(iter(b.values()))) // 10), band=band), rules, 0.0)
 
     # known-answer check: on a market with planted, persistent efficiency regimes, an opening-range breakout traded
     # only on forecast-high days must clearly beat the same rule on forecast-low days; on a random walk it must not
@@ -582,7 +583,8 @@ def gate_check(p, emit, stop):
                    else "The forecast gate finds nothing in a random walk", ok,
                    f"opening-range breakout on forecast-high days {hi:+.2f}, on forecast-low days {lo:+.2f}"))
     bars_ = dev_bars(ds)
-    emit({"log": f"{ds} development data {str(bars_.index[0])[:10]} to {str(bars_.index[-1])[:10]}, {cost:g} bp per trade"})
+    emit({"log": f"{ds} development data {str(bars_.index[0])[:10]} to {str(bars_.index[-1])[:10]}, {cost:g} bp per trade"
+                 + (f", resizing in steps of {band:.0%}" if band else ", resizing every bar")})
     sc = scorer({ds: bars_})
     settings = all_gate_settings()
     rows, labels, vals = [], [], []
@@ -651,13 +653,14 @@ def gate_check(p, emit, stop):
                       x="num", x_range=[0, 1], xlabel="forecast correlation with realized efficiency", ylabel="Sharpe",
                       vlines=[{"x": max(corr, 0.0), "label": "ours"}]))
             emit({"progress": (len(settings) + len(curve)) / (len(settings) + 8)})
-    _log_gate_check(ds, p["strategy"], len(settings), vals[0], vals[best], labels[best], cost)
+    _log_gate_check(ds, p["strategy"], len(settings), vals[0], vals[best], labels[best], cost, band)
     emit({"log": f"logged in the ledger as {len(settings)} explorations on {ds}. To test a gate for real, put it in a card's "
                  "experiment (gates=[...]) and run the gate test: it reruns the gates on shuffled data too."})
 
 
-def _log_gate_check(ds, strategy, n, s0, s1, label, cost):
+def _log_gate_check(ds, strategy, n, s0, s1, label, cost, band=0.0):
+    band_note = f", resize band {band:.0%}" if band else ""
     from . import board, ledger
     ledger.append(board.lab_dir(), card="efficiency-lab", family="efficiency-lab", kind="explore", verdict="-", p="",
                   sharpe=round(s1, 3), n_trials=n, finalist=f"{strategy} | {label}", data=ds,
-                  note=f"gate check: {n} gate settings on {strategy} at {cost:g} bp; no gate {s0:+.2f}, best {s1:+.2f}")
+                  note=f"gate check: {n} gate settings on {strategy} at {cost:g} bp{band_note}; no gate {s0:+.2f}, best {s1:+.2f}")

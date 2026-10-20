@@ -104,6 +104,7 @@ def deploy(cid: str, feeds: dict, lab=None, start_utc: float | None = None) -> d
     ppy = float(np.median([bars_per_year(catalog.read(ds).index) for ds in exp.datasets]))   # as the backtest measured it
     lookback = max([v for v in g["params"].values()] + [1])
     dep = dict(card=card["id"], finalist=g, datasets=exp.datasets, feeds=feeds, cost_bps=exp.cost_bps, delay=exp.delay, ppy=ppy,
+               rebalance_band=float(getattr(exp, "rebalance_band", 0.0)),
                warmup=int(lookback + 25), started_utc=start_utc or time.time(),
                started=time.strftime("%Y-%m-%d %H:%M", time.gmtime(start_utc or time.time())),
                experiment=os.path.join(board.card_dir(card, lab), "experiment.py"))
@@ -123,19 +124,30 @@ def deployments(lab=None) -> list[dict]:
     return out
 
 
-def _decide(rules, bars: pd.DataFrame, dep: dict, ds: str, exp) -> np.ndarray:
-    """The backtest's decisions on these bars. An efficiency gate needs a long history (its forecast is refitted on
-    years of data), so for a gated strategy the catalog's bars before the journal are put in front first."""
+def _with_history(bars: pd.DataFrame, dep: dict, ds: str) -> pd.DataFrame:
+    """An efficiency gate (refitted on years of data) and a rebalance band (it remembers the size it holds) depend on
+    history, so for those the catalog's bars before the journal are put in front, as in the backtest."""
     g = dep["finalist"]
-    frame = bars
-    if (g.get("gate") or {}).get("kind", "none") != "none":
-        try:
-            hist = catalog.read(ds)
-            hist = hist[hist.index < bars.index[0]][["open", "high", "low", "close", "volume"]]
-            frame = pd.concat([hist, bars[["open", "high", "low", "close", "volume"]]])
-        except KeyError:
-            pass
-    return positions(rules, frame, g, ds, {}, getattr(exp, "gate_features", ["price"]))[-len(bars):]
+    if (g.get("gate") or {}).get("kind", "none") == "none" and not dep.get("rebalance_band", 0.0):
+        return bars
+    try:
+        hist = catalog.read(ds)
+    except KeyError:
+        return bars
+    cols = ["open", "high", "low", "close", "volume"]
+    return pd.concat([hist[hist.index < bars.index[0]][cols], bars[cols]])
+
+
+def _decide(rules, bars: pd.DataFrame, dep: dict, ds: str, exp) -> np.ndarray:
+    """The backtest's decisions on these bars."""
+    frame = _with_history(bars, dep, ds)
+    return positions(rules, frame, dep["finalist"], ds, {}, getattr(exp, "gate_features", ["price"]))[-len(bars):]
+
+
+def _sizes(bars: pd.DataFrame, dep: dict, ds: str) -> np.ndarray:
+    frame = _with_history(bars, dep, ds)
+    prep = prepare({ds: frame}, dep["cost_bps"], warmup=0, ppy=dep["ppy"], band=dep.get("rebalance_band", 0.0))
+    return prep.arrays[ds]["size"][-len(bars):]
 
 
 def _journal_bars(db, ds) -> pd.DataFrame:
@@ -174,8 +186,7 @@ def step(feed=None, lab=None, now=None, verbose=True) -> list[str]:
             if len(bars) < dep["warmup"]:
                 msgs.append(f"{dep['card']} {ds}: {len(bars)} bars, warming up (need {dep['warmup']})"); continue
             sig = _decide(rules, bars, dep, ds, exp)
-            prep = prepare({ds: bars}, dep["cost_bps"], warmup=0, ppy=dep["ppy"])
-            size = prep.arrays[ds]["size"]
+            size = _sizes(bars, dep, ds)
             decided = 0
             for i, ts in enumerate(bars.index):
                 key = int(ts.value // 1_000_000)
@@ -208,6 +219,7 @@ def _paper_returns(dep, lab=None):
             continue
         dec.index = pd.to_datetime(dec.pop("ts"), unit="ms", utc=True)
         prep = prepare({ds: bars}, dep["cost_bps"], warmup=0, score_from=dec.index[0], ppy=dep["ppy"])
+        prep.arrays[ds]["size"] = _sizes(bars, dep, ds)                 # with a band, sizes depend on history
         sig = dec["signal"].reindex(bars.index).fillna(0.0).to_numpy()
         pnl, trades = market_returns(prep.arrays[ds], sig, delay=dep["delay"])
         out[ds] = (pd.Series(pnl, index=bars.index).dropna(), trades, prep.ppy, dec.index[0])
@@ -265,7 +277,8 @@ def reconcile(cid: str, lab=None) -> dict:
             # 3. returns: paper vs backtest on catalog data over the same hours
             if ds in paper and len(j):
                 pnl, _, ppy, first = paper[ds]
-                prep = prepare({ds: cat}, dep["cost_bps"], warmup=0, score_from=first, ppy=dep["ppy"])
+                prep = prepare({ds: cat}, dep["cost_bps"], warmup=0, score_from=first, ppy=dep["ppy"],
+                               band=dep.get("rebalance_band", 0.0))
                 bt, _ = market_returns(prep.arrays[ds], positions(rules, cat, dep["finalist"], ds, {}, getattr(exp, "gate_features", ["price"])),
                                        delay=dep["delay"])
                 bt = pd.Series(bt, index=cat.index).dropna()

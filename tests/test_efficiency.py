@@ -167,6 +167,52 @@ class TestGates(Base):
         self.assertGreater(np.abs(live).sum(), 0)
 
 
+class TestRebalanceBand(Base):
+    def test_band_sizes_stay_close_and_change_rarely(self):
+        from oql.engine import band_sizes
+        rng = np.random.default_rng(0)
+        size = np.exp(np.cumsum(rng.normal(0, 0.02, 5000))) * 0.5
+        b = band_sizes(size, 0.25)
+        self.assertLessEqual(np.max(np.abs(np.log(b / size))), np.log(1.25) + 1e-12)     # never outside the band
+        self.assertLess((np.diff(b) != 0).sum(), 0.1 * (np.diff(size) != 0).sum())     # far fewer resizes
+        self.assertIs(band_sizes(size, 0.0), size)
+
+    def test_paper_sizes_match_the_backtest_with_a_band(self):
+        from oql import catalog, efficiency as E
+        from oql.engine import prepare
+        from oql.paper import _sizes
+        bars = E.synthetic_bars(False, n_days=200, seed=12)
+        catalog.write("synth/x/1h", bars, license="own", origin="test")
+        dep = {"finalist": {"rule": "momentum", "params": {"lookback": 20}, "side": "both"}, "cost_bps": {"default": 5.0},
+               "ppy": 8760.0, "rebalance_band": 0.25}
+        full = prepare({"synth/x/1h": bars}, dep["cost_bps"], warmup=0, ppy=8760.0, band=0.25).arrays["synth/x/1h"]["size"]
+        self.assertTrue(np.allclose(_sizes(bars.iloc[-300:], dep, "synth/x/1h"), full[-300:], equal_nan=True))
+
+    def test_band_cuts_costs_and_is_declared_in_the_experiment(self):
+        from oql import agent_tools as T, catalog, efficiency as E
+        from oql.engine import prepare
+        from oql.search import Scorer
+        from oql.strategies import RULES
+        bars = E.synthetic_bars(False, n_days=400, seed=10)
+        g = {"rule": "momentum", "params": {"lookback": 250}, "side": "both"}
+        paid = {}
+        for band in (0.0, 0.25):
+            sc = Scorer(prepare({"x": bars}, {"default": 5.0}, band=band), RULES)
+            gross, _, _ = sc.returns(g, cost_mult=0.0)
+            net, _, _ = sc.returns(g)
+            paid[band] = float((gross - net).sum())
+        self.assertLess(paid[0.25], 0.8 * paid[0.0])                                   # resizing is part of the bill, not all
+        catalog.write("binance/SYN/1h", bars, license="own", origin="test")
+        T.propose_idea("Cheap resizing", "Resizing every hour pays costs for nothing; stepwise sizing keeps the risk target.", "x")
+        T.start_research("1")
+        T.write_experiment("1", ["binance/SYN/1h"], rules=["momentum"], rebalance_band=0.25, n_perm=39)
+        from oql import board
+        from oql.experiment import load
+        self.assertEqual(load(os.path.join(board.card_dir(board.get(board.load(), "1")), "experiment.py")).rebalance_band, 0.25)
+        with self.assertRaises(T.AgentError):
+            T.write_experiment("1", ["binance/SYN/1h"], rebalance_band=0.9)
+
+
 class TestReporting(Base):
     def test_efficiency_explorations_are_counted_at_the_freeze(self):
         from oql import board, catalog, efficiency as E, ledger

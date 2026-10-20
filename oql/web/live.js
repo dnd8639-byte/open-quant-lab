@@ -344,7 +344,7 @@ async function initEfficiency() {
     document.querySelectorAll("#egroups [data-g]").forEach(c => params[c.dataset.g] = c.checked);
     runJob("efficiency", params, $("#eout"), $("#erun"), $("#estop"), $("#estate"), () => loadEfficiency($("#eds").value));
   };
-  $("#grun").onclick = () => runJob("gatecheck", {dataset: $("#gds").value, strategy: $("#gstrat").value, cost_bps: +$("#gcost").value},
+  $("#grun").onclick = () => runJob("gatecheck", {dataset: $("#gds").value, strategy: $("#gstrat").value, cost_bps: +$("#gcost").value, band: +$("#gband").value},
     $("#gout"), $("#grun"), $("#gstop"), $("#gstate"), () => loadEfficiency($("#eds").value));
 }
 

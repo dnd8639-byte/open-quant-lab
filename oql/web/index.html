@@ -167,6 +167,7 @@ svg text.ink{fill:var(--ink);font-weight:500}
       when it is declared in a card's experiment, where the gate test reruns it on shuffled data.</p>
     <div class="controls"><label>Dataset<select id="gds"></select></label><label>Strategy<select id="gstrat"></select></label>
       <label>Cost per trade<select id="gcost"><option value="1">1 bp</option><option value="2" selected>2 bp</option><option value="5">5 bp</option><option value="10">10 bp</option></select></label>
+      <label>Resizing<select id="gband"><option value="0">every bar</option><option value="0.25">in 25% steps</option></select></label>
       <button class="go" id="grun">Run</button><button class="ghost" id="gstop" disabled>Stop</button><span class="note" id="gstate"></span></div>
     <div id="gout"></div></div>
   <div class="panel"><h2>Efficiency explorations so far</h2><div style="overflow-x:auto"><table id="ehist"></table></div></div>

@@ -208,14 +208,14 @@ EXPERIMENT = Experiment(
     grid={grid!r},
     cost_bps={cost!r},
     alpha={alpha!r},
-    n_perm={n_perm!r},{gates}
+    n_perm={n_perm!r},{gates}{band}
 )
 '''
 
 
 def write_experiment(card_id: str, datasets: list, rules: list | None = None, grid: dict | None = None,
                      cost_bps: dict | None = None, alpha: float = 0.05, n_perm: int = 99, gates: list | None = None,
-                     gate_features: list | None = None) -> dict:
+                     gate_features: list | None = None, rebalance_band: float = 0.0) -> dict:
     c = _card(card_id)
     if c["stage"] not in EDITABLE:
         raise AgentError(f"card is '{c['stage']}': experiments can only be edited before the freeze")
@@ -239,6 +239,9 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
         raise AgentError(f"gate_features must come from: {', '.join(GROUPS)}")
     if "price" not in gate_features:
         gate_features = ["price"] + gate_features
+    if not 0 <= float(rebalance_band) <= 0.5:
+        raise AgentError("rebalance_band must be between 0 (resize every bar) and 0.5")
+    band_text = f"\n    rebalance_band={float(rebalance_band)!r}," if rebalance_band else ""
     gate_text = "" if gates == ["none"] else f"\n    gates={gates!r},\n    gate_features={gate_features!r},"
     cost_bps = {k: float(v) for k, v in (cost_bps or {"default": 1.0}).items()}
     if not 0.001 <= alpha <= 0.1:
@@ -246,7 +249,7 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
     if not 39 <= int(n_perm) <= 999:
         raise AgentError("n_perm must be between 39 and 999 (fewer cannot reach p < 0.05)")
     text = EXPERIMENT.format(id=c["id"], title=c["title"], datasets=list(datasets), rules=list(rules), grid=grid,
-                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm), gates=gate_text,
+                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm), gates=gate_text, band=band_text,
                              agent=" by an AI assistant" if c.get("author") == "agent" else "")
     path = os.path.join(board.card_dir(c), "experiment.py")
     with open(path, "w") as f:
@@ -287,9 +290,17 @@ def _card_costs(c, ds) -> tuple[float, float]:
     return 1.0, 1 / 23
 
 
-def _dev_scorer(book, ds, warmup, cost_bps=1.0, gate_features=("price",)):
+def _dev_scorer(book, ds, warmup, cost_bps=1.0, gate_features=("price",), band=0.0):
     exp = Experiment(datasets=[ds])
-    return Scorer(prepare(book, {"default": cost_bps}, warmup=warmup), exp.rule_table(), 0.0, gate_features), exp
+    return Scorer(prepare(book, {"default": cost_bps}, warmup=warmup, band=band), exp.rule_table(), 0.0, gate_features), exp
+
+
+def _card_band(c) -> float:
+    path = os.path.join(board.card_dir(c), "experiment.py")
+    try:
+        return float(load_exp(path).rebalance_band) if os.path.exists(path) else 0.0
+    except Exception:
+        return 0.0
 
 
 def _card_gate_features(c) -> list:
@@ -323,7 +334,7 @@ def explore(card_id: str, dataset: str, rule: str, params: dict, side: str = "bo
     dev = catalog.read(dataset)
     dev = dev[dev.index < cut]
     cost, delay = _card_costs(c, dataset)
-    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)), cost, _card_gate_features(c))
+    sc, exp = _dev_scorer({dataset: dev}, dataset, min(250, max(20, len(dev) // 10)), cost, _card_gate_features(c), _card_band(c))
     port, _, trades = sc.returns(g, delay=delay)
     s = sharpe(port.to_numpy(), sc.prep.ppy)
     entry = dict(actor=actor, kind="explore", dataset=dataset, genome=json.dumps(g, sort_keys=True), sharpe=s, trades=trades,
@@ -369,10 +380,10 @@ def permutation_check(card_id: str, dataset: str, rule: str, params: dict, side:
     dev = dev[dev.index < cut]
     warm = min(250, max(20, len(dev) // 10))
     cost, delay = _card_costs(c, dataset)
-    feats = _card_gate_features(c)
+    feats, band = _card_gate_features(c), _card_band(c)
 
     def one(book):
-        sc, exp = _dev_scorer(book, dataset, warm, cost, feats)
+        sc, exp = _dev_scorer(book, dataset, warm, cost, feats, band)
         return sharpe(sc.returns(g, delay=delay)[0].to_numpy(), sc.prep.ppy)
     real = one({dataset: dev})
     null = np.array([one(permute_book({dataset: dev}, 7000 + k)) for k in range(n)])
@@ -448,6 +459,8 @@ TOOLS = {
                             "cost_bps": {"type": "object", "additionalProperties": NUM}, "alpha": NUM, "n_perm": INT,
                             "gates": {"type": "array", "items": {"type": "string", "enum": ["none", *GATES]},
                                       "description": "efficiency gates the search may add to strategies (default ['none'] = no gates). Each gate setting multiplies the search size."},
+                            "rebalance_band": {"type": "number", "description": "resize positions only in steps of (1 + band), e.g. 0.25, "
+                                               "so hourly strategies stop paying to resize every bar; 0 (default) = every bar"},
                             "gate_features": {"type": "array", "items": {"type": "string"},
                                               "description": "feature groups for er_forecast: price (always), calendar, funding, basis, macro, positioning, orderbook"}},
                            ["card_id", "datasets"])),
