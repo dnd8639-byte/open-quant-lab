@@ -73,8 +73,12 @@ def _one(args):
     kind, seed, n_perm, *nulls = args
     nulls = nulls[0] if nulls else NULLS
     os.environ.setdefault("OMP_NUM_THREADS", "1")
-    exp = experiment()
-    b = book(kind, seed)
+    if kind.startswith("big"):                            # e.g. "big1000-noise": the large-search space of project 11
+        from .projects.p11_large_search import experiment as big
+        size, base = kind[3:].split("-")
+        exp, b = big(int(size)), book(base, seed)
+    else:
+        exp, b = experiment(), book(kind, seed)
     split = sorted(set().union(*[set(df.index) for df in b.values()]))
     cut = split[int(len(split) * 0.7)]
     dev = {k: df[df.index < cut] for k, df in b.items()}

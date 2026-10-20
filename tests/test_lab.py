@@ -512,7 +512,7 @@ class TestLive(Base):
         from oql import catalog, projects, synthetic
         catalog.write("binance/TEST/1d", synthetic.noise_market(n=900, seed=2), license="own", origin="test")
         listing = {p["id"]: p for p in projects.listing()}
-        self.assertEqual(len(listing), 10)
+        self.assertEqual(len(listing), 11)
         self.assertIn("binance/TEST/1d", listing["p03_overfitting_detector"]["params"][0]["options"])
         self.assertIn("french/F-F_Momentum_Factor/1mo", listing["p04_momentum_regimes"]["missing"])   # no factors imported here
         for pid, params in [("p03_overfitting_detector", {"dataset": "binance/TEST/1d", "rules": 200}),

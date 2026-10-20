@@ -3,6 +3,15 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.7.0
+- **Project 11, large search** (Projects tab): the lab's search loop at growing sizes, up to about 3,000 distinct
+  strategies from dense grids, on a synthetic book with a known truth. For each size it compares a naive t-test of
+  the winner, the Deflated Sharpe Ratio, and the gate. On a no-edge book the naive test calls a ~700-strategy winner
+  significant (p 0.03) while the gate does not (p 0.55); on a planted edge the gate passes at every size.
+- Power study (docs/CALIBRATION.md): with about 11 years of data, edges whose best strategy shows a Sharpe near 0.4
+  are caught 8-15% of the time; edges near Sharpe 1 over decades pass reliably.
+- Calibration can run the large-search space (`--kinds big1000-noise`).
+
 ## 0.6.2
 - `oql data pull-long-history-excess` **(fixes a data flaw found by card 0003)**: the long histories as returns a
   financed position actually earns, under `fred-xs/`. Treasuries earn yield minus the 3-month T-bill rate (the

@@ -10,7 +10,7 @@ import importlib
 
 IDS = ["p01_tail_index", "p02_intraday_seasonality", "p03_overfitting_detector", "p04_momentum_regimes",
        "p05_factor_neutrality", "p06_american_put", "p07_autodiff_greeks", "p08_implied_distribution",
-       "p09_hawkes_trades", "p10_news_diffusion"]
+       "p09_hawkes_trades", "p10_news_diffusion", "p11_large_search"]
 
 
 def module(pid: str):

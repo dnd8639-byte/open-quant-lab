@@ -97,6 +97,18 @@ class TestExcessReturns(unittest.TestCase):
         self.assertAlmostEqual(r.mean() * 252, 0.04, places=4)                              # 12% - 8% carry, flat spot
 
 
+class TestLargeSearch(unittest.TestCase):
+    def test_small_version_runs_and_finds_the_planted_edge(self):
+        import threading
+        from oql.projects import p11_large_search as P
+        P_sizes = P.experiment(30)
+        self.assertGreater(len(P_sizes.rule_table()["ma_cross"][1]["fast"]), 50)            # the dense grid is in use
+        ev = []
+        P.run({"market": "planted edge (persistent trends)", "largest": 30, "shuffles": 39}, ev.append, threading.Event())
+        checks = [e for e in ev if "check" in e]
+        self.assertTrue(checks and all(c["passed"] for c in checks), checks)
+
+
 class TestCalibration(unittest.TestCase):
     def test_one_calibration_gate(self):
         from oql.calibration import _one, summarize
