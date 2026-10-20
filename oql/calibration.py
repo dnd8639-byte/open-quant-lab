@@ -45,6 +45,9 @@ def clustered_market(n=2000, seed=0, vol=0.01, persistence=0.97, shock=0.1) -> p
 
 def book(kind: str, seed: int, n_markets=3, n=2000) -> dict:
     out = {}
+    if kind.startswith("drift"):                          # power study: "drift0.0006" = weaker persistent trends
+        d = float(kind[5:])
+        return {f"m{i}": trend_market(4100, seed * 100 + i, drift=d) for i in range(10)}   # ~16 years, like the futures
     for i in range(n_markets):
         s = seed * 100 + i
         if kind == "noise":
@@ -67,7 +70,8 @@ def best(b: dict, exp: Experiment) -> float:
 
 
 def _one(args):
-    kind, seed, n_perm = args
+    kind, seed, n_perm, *nulls = args
+    nulls = nulls[0] if nulls else NULLS
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     exp = experiment()
     b = book(kind, seed)
@@ -76,19 +80,22 @@ def _one(args):
     dev = {k: df[df.index < cut] for k, df in b.items()}
     real = best(dev, exp)
     out = {"kind": kind, "seed": seed, "real": real}
-    for method in NULLS:
+    for method in nulls:
         null = np.array([best(permute_book(dev, 10_000 + k, method=method), exp) for k in range(n_perm)])
         out[method] = float((1 + (null >= real).sum()) / (n_perm + 1))
         out[method + "_median"] = float(np.median(null))
     return out
 
 
-def run(books=60, n_perm=39, procs=None, kinds=KINDS, progress=print) -> list[dict]:
-    jobs = [(k, s, n_perm) for k in kinds for s in range(books)]
+def run(books=60, n_perm=39, procs=None, kinds=KINDS, progress=print, nulls=NULLS, save=None) -> list[dict]:
+    jobs = [(k, s, n_perm, tuple(nulls)) for k in kinds for s in range(books)]
     res, t0 = [], time.time()
     with mp.get_context("spawn").Pool(procs or max(1, (os.cpu_count() or 2) - 1)) as pool:
         for i, r in enumerate(pool.imap_unordered(_one, jobs)):
             res.append(r)
+            if save:                                       # keep partial results if the run is interrupted
+                with open(save, "w") as f:
+                    json.dump(res, f)
             if progress and (i + 1) % 10 == 0:
                 progress(f"{i + 1}/{len(jobs)} gates ({time.time() - t0:.0f} s)")
     return res
@@ -97,9 +104,9 @@ def run(books=60, n_perm=39, procs=None, kinds=KINDS, progress=print) -> list[di
 def summarize(res: list[dict], alpha=0.05) -> pd.DataFrame:
     d = pd.DataFrame(res)
     rows = []
-    for kind in [k for k in KINDS if k in set(d["kind"])]:
+    for kind in list(dict.fromkeys(d["kind"])):
         x = d[d["kind"] == kind]
-        for m in NULLS:
+        for m in [m for m in NULLS if m in x.columns]:
             p = x[m].to_numpy()
             se = np.sqrt(max((p <= alpha).mean() * (1 - (p <= alpha).mean()), 1e-9) / len(p))
             rows.append({"markets": kind, "null": m, "gates": len(p), f"pass rate (p <= {alpha})": (p <= alpha).mean(),
@@ -114,8 +121,10 @@ if __name__ == "__main__":
     a.add_argument("--perm", type=int, default=39)
     a.add_argument("--procs", type=int, default=None)
     a.add_argument("--out", default="calibration.json")
+    a.add_argument("--kinds", default=",".join(KINDS), help="noise,wild,trend or drift levels like drift0.0005")
+    a.add_argument("--nulls", default=",".join(NULLS))
     args = a.parse_args()
-    res = run(args.books, args.perm, args.procs)
+    res = run(args.books, args.perm, args.procs, kinds=args.kinds.split(","), nulls=args.nulls.split(","), save=args.out + ".partial")
     with open(args.out, "w") as f:
         json.dump(res, f)
     pd.set_option("display.width", 160)

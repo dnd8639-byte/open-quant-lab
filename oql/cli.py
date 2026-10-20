@@ -4,6 +4,8 @@ DATA
   oql data list                                  every dataset, its licence, rows and dates
   oql data check [ID ...]                        quality report (all datasets if none given)
   oql data pull-fred DGS10 CPIAUCSL ...          FRED series (free, no key)
+  oql data pull-long-history                     FRED currencies (1971-), Treasuries (1962-), oil (1986-) as bars
+  oql data pull-long-history-excess              the same, financed: Treasuries minus T-bills, currencies plus carry
   oql data pull-binance BTCUSDT --interval 1h --start 2018-01
   oql data import-csv FILE NAME FREQ [--license own|public|licensed]
   oql data import-databento DIR [--roots ES,CL]  licensed: stays on this machine
@@ -79,6 +81,12 @@ def _data(a):
     elif a.cmd == "pull-fred":
         for s in a.series:
             m = sources.fred(s); print(f"{m.id}: {m.rows} rows {m.start[:10]} -> {m.end[:10]}")
+    elif a.cmd == "pull-long-history-excess":
+        for line in sources.long_history_excess():
+            print(line)
+    elif a.cmd == "pull-long-history":
+        for line in sources.long_history():
+            print(line)
     elif a.cmd == "pull-binance":
         m = sources.binance(a.symbol, a.interval, a.start, a.end)
         print(f"{m.id}: {m.rows} rows {m.start[:16]} -> {m.end[:16]}" + (f"\n  note: {m.notes}" if m.notes else ""))
@@ -136,6 +144,8 @@ def main(argv=None):
     d.add_parser("list")
     x = d.add_parser("check"); x.add_argument("ids", nargs="*")
     x = d.add_parser("pull-fred"); x.add_argument("series", nargs="+")
+    d.add_parser("pull-long-history")
+    d.add_parser("pull-long-history-excess")
     x = d.add_parser("pull-binance"); x.add_argument("symbol"); x.add_argument("--interval", default="1h")
     x.add_argument("--start", default="2018-01"); x.add_argument("--end", default=None)
     x = d.add_parser("import-csv"); x.add_argument("file"); x.add_argument("name"); x.add_argument("freq")

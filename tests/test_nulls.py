@@ -70,6 +70,33 @@ class TestVolMatchedNull(Base):
             board.freeze(c["id"])
 
 
+class TestLongHistory(unittest.TestCase):
+    def test_series_become_tradable_bars(self):
+        import pandas as pd
+        from oql.sources import series_to_bars
+        idx = pd.date_range("1971-01-04", periods=4, freq="B")
+        jpy = series_to_bars(pd.Series([360.0, 300.0, "", 240.0], index=idx), "fx_inv")       # yen per dollar
+        self.assertAlmostEqual(jpy.close.iloc[-1] / jpy.close.iloc[0], 1.5)                   # yen worth 50% more
+        bond = series_to_bars(pd.Series([5.0, 6.0, 6.0, 5.0], index=idx), "bond:8")
+        r = np.diff(np.log(bond.close.values))
+        self.assertLess(r[0], -0.07); self.assertGreater(r[2], 0.07)                         # yields up = price down
+        self.assertTrue((bond.high >= bond.close).all() and (bond.low <= bond.open).all())
+
+
+class TestExcessReturns(unittest.TestCase):
+    def test_financing_is_subtracted_and_carry_added(self):
+        import pandas as pd
+        from oql.sources import series_to_excess_bars
+        idx = pd.bdate_range("1980-01-01", periods=600)
+        tbill = pd.Series(8.0, index=pd.bdate_range("1979-01-01", periods=900))
+        flat = series_to_excess_bars(pd.Series(8.0, index=idx), "bond:8", tbill)            # yield = T-bill, unchanged
+        self.assertAlmostEqual(flat.close.iloc[-1] / flat.close.iloc[0], 1.0, places=9)    # earns nothing in excess
+        fx = series_to_excess_bars(pd.Series(2.0, index=idx), "fx", tbill,
+                                   pd.Series(12.0, index=pd.date_range("1979-01-01", periods=40, freq="MS")))
+        r = np.log(fx.close).diff().dropna()
+        self.assertAlmostEqual(r.mean() * 252, 0.04, places=4)                              # 12% - 8% carry, flat spot
+
+
 class TestCalibration(unittest.TestCase):
     def test_one_calibration_gate(self):
         from oql.calibration import _one, summarize

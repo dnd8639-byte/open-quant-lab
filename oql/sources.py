@@ -61,6 +61,129 @@ def fred(series: str, getter=fetch):
                          notes="FRED observation dates; values as first published may differ (no vintages)")
 
 
+# ---------------------------------------------------------------------------------------------- long histories (FRED)
+# Free daily series that go back decades, turned into tradable price bars so long-history tests have enough years.
+#   fx:    price of the foreign currency in US dollars (FRED quotes most as foreign units per dollar: inverted)
+#   bond:  total-return index of a constant-maturity Treasury, from the yield: -duration x change in yield + carry
+#   price: the series itself (a spot price)
+LONG_HISTORY = {
+    "JPY": ("DEXJPUS", "fx_inv"), "GBP": ("DEXUSUK", "fx"), "CHF": ("DEXSZUS", "fx_inv"), "CAD": ("DEXCAUS", "fx_inv"),
+    "AUD": ("DEXUSAL", "fx"), "NZD": ("DEXUSNZ", "fx"), "SEK": ("DEXSDUS", "fx_inv"), "NOK": ("DEXNOUS", "fx_inv"),
+    "DKK": ("DEXDNUS", "fx_inv"), "ZAR": ("DEXSFUS", "fx_inv"), "SGD": ("DEXSIUS", "fx_inv"), "INR": ("DEXINUS", "fx_inv"),
+    "UST1Y": ("DGS1", "bond:0.95"), "UST5Y": ("DGS5", "bond:4.5"), "UST10Y": ("DGS10", "bond:8.0"),
+    "UST30Y": ("DGS30", "bond:17.0"), "WTI": ("DCOILWTICO", "price"),
+}
+
+
+def series_to_bars(values: pd.Series, how: str) -> pd.DataFrame:
+    """Close-only daily series -> bars (open = previous close, so all of a day's move is intraday; no range)."""
+    v = pd.to_numeric(values, errors="coerce").dropna()
+    if how == "fx_inv":
+        v = 1.0 / v[v > 0]
+    elif how.startswith("bond:"):
+        dur = float(how.split(":")[1])
+        dy = v.diff() / 100
+        r = (-dur * dy + v.shift(1) / 100 / 252).fillna(0.0)
+        v = 100 * np.exp(np.log1p(r.clip(lower=-0.5)).cumsum())
+    v = v[v > 0]                                            # e.g. WTI's negative print in April 2020: not tradable
+    o = v.shift(1).fillna(v.iloc[0])
+    return pd.DataFrame({"open": o, "high": np.maximum(o, v), "low": np.minimum(o, v), "close": v, "volume": 0.0}, index=v.index)
+
+
+# Excess returns: what a financed position actually earns. A Treasury held with borrowed money earns its yield minus
+# the short rate; a currency held against dollars earns the interest-rate difference on top of the spot move.
+# Foreign 3-month rates are OECD monthly series on FRED, used one month late (as they were known); a currency's bars
+# start when its rate does. US short rate: 3-month T-bill (DTB3, daily from 1954).
+SHORT_RATE = "DTB3"
+FOREIGN_RATE = {"JPY": "IR3TIB01JPM156N", "GBP": "IR3TIB01GBM156N", "CHF": "IR3TIB01CHM156N", "CAD": "IR3TIB01CAM156N",
+                "AUD": "IR3TIB01AUM156N", "NZD": "IR3TIB01NZM156N", "SEK": "IR3TIB01SEM156N", "NOK": "IR3TIB01NOM156N",
+                "DKK": "IR3TIB01DKM156N", "ZAR": "IR3TIB01ZAM156N", "SGD": "IR3TIB01SGM156N", "INR": "IR3TIB01INM156N"}
+
+
+def _asof_daily(rate: pd.Series, index: pd.DatetimeIndex, lag_days: int = 0) -> pd.Series:
+    """A (daily or monthly) rate in percent, as known on each date: last value strictly before date - lag."""
+    r = pd.to_numeric(rate, errors="coerce").dropna().sort_index()
+    r.index = r.index + pd.Timedelta(days=lag_days)
+    return r.reindex(r.index.union(index)).ffill().shift(1).reindex(index)
+
+
+def series_to_excess_bars(values: pd.Series, how: str, short: pd.Series, foreign: pd.Series | None = None) -> pd.DataFrame:
+    """Like series_to_bars, but the daily return includes financing: bonds earn yield minus the T-bill rate;
+    currencies earn the spot move plus (foreign rate - T-bill rate). Days without a known rate are dropped."""
+    v = pd.to_numeric(values, errors="coerce").dropna()
+    v = v[v > 0]
+    us = _asof_daily(short, v.index)
+    if how.startswith("bond:"):
+        dur = float(how.split(":")[1])
+        r = -dur * v.diff() / 100 + (v.shift(1) - us) / 100 / 252
+    else:
+        spot = 1.0 / v if how == "fx_inv" else v
+        fr = _asof_daily(foreign, v.index, lag_days=31) if foreign is not None else pd.Series(np.nan, index=v.index)
+        r = np.log(spot).diff() + (fr - us) / 100 / 252
+    r = r.dropna()
+    lvl = 100 * np.exp(np.log1p(r.clip(lower=-0.5)).cumsum())
+    o = lvl.shift(1).fillna(100.0)
+    return pd.DataFrame({"open": o, "high": np.maximum(o, lvl), "low": np.minimum(o, lvl), "close": lvl, "volume": 0.0},
+                        index=lvl.index)
+
+
+def long_history_excess(names=None, getter=fetch, refresh=True):
+    """Financed (excess-return) versions of the long histories under fred-xs/NAME/1d. Oil is left out: its
+    tradable return (futures roll) cannot be built from the spot price."""
+    out = []
+    try:
+        if refresh:
+            fred(SHORT_RATE, getter)
+        short = catalog.read(f"fred/{SHORT_RATE}/1d")
+        short = short[short.columns[0]]
+    except Exception as e:
+        return [f"{SHORT_RATE}: {e} (needed for every series)"]
+    for name in names or [n for n in LONG_HISTORY if n != "WTI"]:
+        series, how = LONG_HISTORY[name]
+        try:
+            if refresh:
+                fred(series, getter)
+            t = catalog.read(f"fred/{series}/1d")
+            foreign = None
+            if how.startswith("fx"):
+                if refresh:
+                    fred(FOREIGN_RATE[name], getter)
+                f = catalog.read(f"fred/{FOREIGN_RATE[name]}/1d")
+                foreign = f[f.columns[0]]
+        except Exception as e:
+            out.append(f"{name}: skipped ({e})")
+            continue
+        bars = series_to_excess_bars(t[t.columns[0]], how, short, foreign)
+        if len(bars) < 500:
+            out.append(f"{name}: skipped (only {len(bars)} days with known rates)")
+            continue
+        m = catalog.write(f"fred-xs/{name}/1d", bars, license="public", origin=f"https://fred.stlouisfed.org/series/{series}",
+                          notes=f"excess return from FRED {series} ({how}) financed at {SHORT_RATE}"
+                                + (f", plus {FOREIGN_RATE[name]} (monthly, one month late)" if how.startswith("fx") else "")
+                                + "; close-only")
+        out.append(f"{m.id}: {m.rows} days {m.start[:10]} -> {m.end[:10]}")
+    return out
+
+
+def long_history(names=None, getter=fetch, refresh=True):
+    """Pull the LONG_HISTORY series from FRED (free, no key) and store them as bars under fred-bars/NAME/1d."""
+    out = []
+    for name in names or LONG_HISTORY:
+        series, how = LONG_HISTORY[name]
+        try:
+            if refresh:
+                fred(series, getter)
+            t = catalog.read(f"fred/{series}/1d")
+        except Exception as e:                              # one missing series does not stop the rest
+            out.append(f"{name}: {e}")
+            continue
+        bars = series_to_bars(t[t.columns[0]], how)
+        m = catalog.write(f"fred-bars/{name}/1d", bars, license="public", origin=f"https://fred.stlouisfed.org/series/{series}",
+                          notes=f"from FRED {series} ({how}); close-only: open = previous close, no intraday range")
+        out.append(f"{m.id}: {m.rows} days {m.start[:10]} -> {m.end[:10]}")
+    return out
+
+
 # ---------------------------------------------------------------------------------------------- Binance public files
 KLINE_COLS = ["open_time", "open", "high", "low", "close", "volume", "close_time", "quote_volume", "trades",
               "taker_buy_base", "taker_buy_quote", "ignore"]

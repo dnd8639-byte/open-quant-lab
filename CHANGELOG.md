@@ -3,6 +3,21 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.6.2
+- `oql data pull-long-history-excess` **(fixes a data flaw found by card 0003)**: the long histories as returns a
+  financed position actually earns, under `fred-xs/`. Treasuries earn yield minus the 3-month T-bill rate (the
+  0.6.1 bond indexes credited the full yield, so a leveraged low-volatility bond looked like a riskless trend);
+  currencies earn the spot move plus the interest-rate difference (OECD 3-month rates, used one month late), and
+  start when that rate is known. Oil is left out: its tradable futures return cannot be built from the spot price.
+  The 0.6.1 `fred-bars/` datasets are kept unchanged, because card 0003 was frozen on them.
+
+## 0.6.1
+- `oql data pull-long-history`: free FRED daily series turned into tradable bars under `fred-bars/`: 12 currencies
+  (from 1971, as the foreign currency's price in dollars), constant-maturity Treasuries as total-return indexes
+  (from 1962; -duration x yield change + carry) and WTI oil (from 1986). Close-only, so open = previous close.
+  Decades of history give tests the statistical power that 2010-onward data cannot.
+- Calibration can run power studies on weaker planted trends (`--kinds drift0.0001,...`).
+
 ## 0.6.0
 - **Second null model** (`Experiment(nulls=["bars", "vol_matched"])`; `write_experiment(nulls=...)`). The
   volatility-matched null divides each bar by the market's volatility at its time, shuffles the standardized bars,
