@@ -97,7 +97,8 @@ Holdouts are deliberately not runnable from the page: they are one-shot, so they
 | `oql/gates.py` | Efficiency gates a search can add to any strategy (trailing efficiency, or the efficiency forecast) |
 | `oql/efficiency.py` | The efficiency lab: targets, look-ahead-free features, walk-forward forecasts, gate checks |
 | `oql/search.py` | The safe search loop: fixed rounds, elites survive, every strategy logged |
-| `oql/permute.py` | Joint bar permutation across markets (adapted from neurotrader888's MIT-licensed method) |
+| `oql/permute.py` | Joint bar permutation across markets (adapted from neurotrader888's MIT-licensed method), plus a volatility-matched null |
+| `oql/calibration.py` | Measures the gate's own false-positive rate and power on synthetic books (docs/CALIBRATION.md) |
 | `oql/gate.py` | The gate and the holdout |
 | `oql/stats.py` | Deflated Sharpe, cost and delay Monte Carlo, long/short split, beta |
 | `oql/board.py` | Cards, stages, enforced moves, reports, the HTML board |

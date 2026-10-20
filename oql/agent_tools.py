@@ -208,14 +208,14 @@ EXPERIMENT = Experiment(
     grid={grid!r},
     cost_bps={cost!r},
     alpha={alpha!r},
-    n_perm={n_perm!r},{gates}{band}
+    n_perm={n_perm!r},{gates}{band}{nulls}
 )
 '''
 
 
 def write_experiment(card_id: str, datasets: list, rules: list | None = None, grid: dict | None = None,
                      cost_bps: dict | None = None, alpha: float = 0.05, n_perm: int = 99, gates: list | None = None,
-                     gate_features: list | None = None, rebalance_band: float = 0.0) -> dict:
+                     gate_features: list | None = None, rebalance_band: float = 0.0, nulls: list | None = None) -> dict:
     c = _card(card_id)
     if c["stage"] not in EDITABLE:
         raise AgentError(f"card is '{c['stage']}': experiments can only be edited before the freeze")
@@ -242,6 +242,10 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
     if not 0 <= float(rebalance_band) <= 0.5:
         raise AgentError("rebalance_band must be between 0 (resize every bar) and 0.5")
     band_text = f"\n    rebalance_band={float(rebalance_band)!r}," if rebalance_band else ""
+    nulls = list(nulls or ["bars"])
+    if not nulls or [m for m in nulls if m not in ("bars", "vol_matched")]:
+        raise AgentError("nulls must be a list of 'bars' and/or 'vol_matched'")
+    nulls_text = "" if nulls == ["bars"] else f"\n    nulls={nulls!r},"
     gate_text = "" if gates == ["none"] else f"\n    gates={gates!r},\n    gate_features={gate_features!r},"
     cost_bps = {k: float(v) for k, v in (cost_bps or {"default": 1.0}).items()}
     if not 0.001 <= alpha <= 0.1:
@@ -249,7 +253,7 @@ def write_experiment(card_id: str, datasets: list, rules: list | None = None, gr
     if not 39 <= int(n_perm) <= 999:
         raise AgentError("n_perm must be between 39 and 999 (fewer cannot reach p < 0.05)")
     text = EXPERIMENT.format(id=c["id"], title=c["title"], datasets=list(datasets), rules=list(rules), grid=grid,
-                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm), gates=gate_text, band=band_text,
+                             cost=cost_bps, alpha=float(alpha), n_perm=int(n_perm), gates=gate_text, band=band_text, nulls=nulls_text,
                              agent=" by an AI assistant" if c.get("author") == "agent" else "")
     path = os.path.join(board.card_dir(c), "experiment.py")
     with open(path, "w") as f:
@@ -459,6 +463,8 @@ TOOLS = {
                             "cost_bps": {"type": "object", "additionalProperties": NUM}, "alpha": NUM, "n_perm": INT,
                             "gates": {"type": "array", "items": {"type": "string", "enum": ["none", *GATES]},
                                       "description": "efficiency gates the search may add to strategies (default ['none'] = no gates). Each gate setting multiplies the search size."},
+                            "nulls": {"type": "array", "items": {"type": "string", "enum": ["bars", "vol_matched"]},
+                                      "description": "null models for the gate; PASS needs p < alpha under every one (default ['bars'])"},
                             "rebalance_band": {"type": "number", "description": "resize positions only in steps of (1 + band), e.g. 0.25, "
                                                "so hourly strategies stop paying to resize every bar; 0 (default) = every bar"},
                             "gate_features": {"type": "array", "items": {"type": "string"},

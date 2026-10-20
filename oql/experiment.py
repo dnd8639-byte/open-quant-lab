@@ -37,6 +37,7 @@ class Experiment:
     elite: int = 6
     min_trades_per_year: float = 1.0                  # direction changes per year, per market (fewer = never selected)
     warmup: int = 250                                 # bars ignored at the start (longest lookback)
+    nulls: list = field(default_factory=lambda: ["bars"])   # null models; PASS needs p < alpha under every one
     rebalance_band: float = 0.0                       # resize only in steps of (1 + band), e.g. 0.25; 0 = every bar
     start: str | None = None
     end: str | None = None

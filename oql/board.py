@@ -172,6 +172,9 @@ def freeze(cid: str, lab=None) -> dict:
     for ds in exp.datasets:
         catalog.meta(ds)                                       # raises if a dataset is missing
     exp.rule_table()                                           # raises on an unknown rule
+    bad = [m for m in getattr(exp, "nulls", ["bars"]) if m not in ("bars", "vol_matched")]
+    if bad or not getattr(exp, "nulls", ["bars"]):
+        raise BoardError(f"nulls must be a non-empty list of 'bars' and/or 'vol_matched', got {getattr(exp, 'nulls', None)}")
     frozen = locks.freeze([pre, expf])
     frozen["data"] = {ds: catalog.meta(ds).sha256 for ds in exp.datasets}
     from . import __version__
@@ -306,6 +309,12 @@ def revise(cid: str, lab=None) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------- reports
+def _other_nulls(r: dict) -> str:
+    """Rows for further null models the experiment declared (PASS needs p < alpha under each)."""
+    return "".join(f"\n| Second null: {m} | p = {o['p']:.3f}; shuffled best median {o['median']:.2f}, 95th percentile {o['p95']:.2f} |"
+                   for m, o in (r.get("other_nulls") or {}).items())
+
+
 def gate_markdown(card: dict, r: dict) -> str:
     sb, mc = r["side_beta"], r["cost_mc"]
     return f"""# Gate report: {card['title']}
@@ -320,7 +329,7 @@ def gate_markdown(card: dict, r: dict) -> str:
 | Efficiency-lab explorations on these datasets before the freeze | {r.get('efficiency_explorations_before_freeze', 'not recorded')} |
 | Best (finalist) | `{json.dumps(r['finalist'])}` |
 | Development Sharpe | {r['dev_sharpe']:.2f} (data before {r['split'][:10]}) |
-| Best Sharpe on shuffled data | median {r['null_median']:.2f}, 95th percentile {r['null_p95']:.2f} ({r['n_perm']} reruns) |
+| Best Sharpe on shuffled data | median {r['null_median']:.2f}, 95th percentile {r['null_p95']:.2f} ({r['n_perm']} reruns, null: {r.get('null_model', 'bars')}) |{_other_nulls(r)}
 | Deflated Sharpe | {r['deflated_sharpe']:.3f} |
 | Cost/delay Monte Carlo | median {mc['median']:.2f}, 5th percentile {mc['p5']:.2f}, positive {mc['share_positive']:.0%} |
 | Long side / short side | {sb['sharpe_long']:.2f} / {sb['sharpe_short']:.2f} |

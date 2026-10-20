@@ -3,6 +3,17 @@
 Changes that can alter what a test measures are marked **(affects results)**. A frozen card records the lab
 version it was frozen with, and its gate report shows both versions if they differ.
 
+## 0.6.0
+- **Second null model** (`Experiment(nulls=["bars", "vol_matched"])`; `write_experiment(nulls=...)`). The
+  volatility-matched null divides each bar by the market's volatility at its time, shuffles the standardized bars,
+  and multiplies each by the volatility of the slot it lands in: calm periods stay calm and crises stay at their
+  dates, and only the order of the moves is destroyed. With several nulls declared, the gate and the holdout PASS
+  only if p < alpha under every one; the report shows each. Default stays `["bars"]`, so existing cards are unchanged.
+- **Calibration study** (`python -m oql.calibration`, docs/CALIBRATION.md): 300 full gates on synthetic books with a
+  known truth. Both nulls keep false positives at or below 5% (3-4%; 1% under strong volatility clustering) and pass
+  96-98% of real edges. Under strong clustering the bar shuffle is too strict (p-values pile up near 1); the
+  volatility-matched null is better calibrated there.
+
 ## 0.5.2
 - **Rebalance band** (opt-in, `Experiment(rebalance_band=0.25)`; `write_experiment(rebalance_band=...)` for the
   assistant; "Resizing" in the gate check). A position keeps its size until the volatility-based target has moved more

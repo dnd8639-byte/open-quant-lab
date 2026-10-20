@@ -39,15 +39,15 @@ def _exp(ref):
 
 
 def _null_search(args):
-    ref, dev, seed = args
+    ref, dev, seed, *method = args
     exp = _exp(ref)
-    return search(_scorer(permute_book(dev, seed), exp), exp)["best_score"]
+    return search(_scorer(permute_book(dev, seed, method=method[0] if method else "bars"), exp), exp)["best_score"]
 
 
 def _null_holdout(args):
-    ref, book, split, g, seed = args
+    ref, book, split, g, seed, *method = args
     exp = _exp(ref)
-    sc = _scorer(permute_book(book, seed, from_date=split), exp, score_from=split)
+    sc = _scorer(permute_book(book, seed, from_date=split, method=method[0] if method else "bars"), exp, score_from=split)
     return sharpe(sc.returns(g, delay=exp.delay)[0].to_numpy(), sc.prep.ppy)
 
 
@@ -77,17 +77,24 @@ def run_gate(exp, procs=None, n_perm=None, verbose=True, progress=None) -> dict:
         print(f"permutation test: rerunning the whole search on {n_perm} shuffled copies...", flush=True)
     ref = exp.path or exp
     emit({"status": "permuting", "real": res["best_score"], "n_perm": n_perm, "finalist": g, "n_trials": res["n_trials"]})
-    null = []
+    nulls = list(getattr(exp, "nulls", ["bars"]))
+    null, others = [], {}
     with _pool(procs) as pool:
-        for k, v in enumerate(pool.imap_unordered(_null_search, [(ref, dev, 1000 + k) for k in range(n_perm)])):
+        for k, v in enumerate(pool.imap_unordered(_null_search, [(ref, dev, 1000 + k, nulls[0]) for k in range(n_perm)])):
             null.append(v)
             emit({"null": float(v), "done": k + 1})
+        for method in nulls[1:]:                           # further declared nulls: same search, same seeds
+            emit({"status": "permuting", "null_model": method})
+            x = np.sort(np.array(pool.map(_null_search, [(ref, dev, 1000 + k, method) for k in range(n_perm)])))
+            others[method] = dict(p=float((1 + (x >= res["best_score"]).sum()) / (n_perm + 1)), median=float(np.median(x)),
+                                  p95=float(np.percentile(x, 95)))
     null = np.sort(np.array(null))                        # order of arrival does not matter; sorted = reproducible
     p = float((1 + (null >= res["best_score"]).sum()) / (n_perm + 1))
     mc = cost_monte_carlo(sc, g)
-    passed = bool(p < exp.alpha and mc["median"] > 0)
+    passed = bool(max([p] + [o["p"] for o in others.values()]) < exp.alpha and mc["median"] > 0)
     emit({"status": "done", "verdict": "PASS" if passed else "FAIL", "p": p})
     return dict(kind="gate", verdict="PASS" if passed else "FAIL", p=p, alpha=exp.alpha, n_perm=n_perm,
+                null_model=nulls[0], other_nulls=others,
                 split=str(split), finalist=g, dev_sharpe=res["best_score"], n_trials=res["n_trials"],
                 history=res["history"], null_median=float(np.median(null)), null_p95=float(np.percentile(null, 95)),
                 null=null.tolist(), deflated_sharpe=deflated_sharpe(port.to_numpy(), res["n_trials"]),
@@ -103,10 +110,17 @@ def run_holdout(exp, finalist: dict, split: str, procs=None, n_perm=199) -> dict
     port = sc.returns(finalist, delay=exp.delay)[0]
     real = sharpe(port.to_numpy(), sc.prep.ppy)
     ref = exp.path or exp
+    nulls = list(getattr(exp, "nulls", ["bars"]))
+    ps = {}
     with _pool(procs) as pool:
-        null = np.array(pool.map(_null_holdout, [(ref, book, split, finalist, 5000 + k) for k in range(n_perm)]))
-    p = float((1 + (null >= real).sum()) / (n_perm + 1))
-    passed = bool(real > 0 and p < exp.alpha)
+        for method in nulls:
+            x = np.array(pool.map(_null_holdout, [(ref, book, split, finalist, 5000 + k, method) for k in range(n_perm)]))
+            ps[method] = float((1 + (x >= real).sum()) / (n_perm + 1))
+            if method == nulls[0]:
+                null = x
+    p = ps[nulls[0]]
+    passed = bool(real > 0 and max(ps.values()) < exp.alpha)
     return dict(kind="holdout", verdict="PASS" if passed else "FAIL", holdout_sharpe=real, p=p, n_perm=n_perm,
                 start=str(split), end=str(port.index[-1]) if len(port) else "", bars=int(port.notna().sum()),
-                side_beta=side_and_beta(sc, finalist, exp.delay), null_median=float(np.median(null)))
+                side_beta=side_and_beta(sc, finalist, exp.delay), null_median=float(np.median(null)),
+                null_model=nulls[0], p_by_null=ps)
